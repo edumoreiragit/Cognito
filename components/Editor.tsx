@@ -7,10 +7,11 @@ interface EditorProps {
   note: Note;
   onUpdate: (updatedNote: Note) => void;
   onAnalyze: (note: Note) => void;
+  onNavigate: (title: string) => void;
   saveStatus: 'saved' | 'saving' | 'unsaved';
 }
 
-const Editor: React.FC<EditorProps> = ({ note, onUpdate, onAnalyze, saveStatus }) => {
+const Editor: React.FC<EditorProps> = ({ note, onUpdate, onAnalyze, onNavigate, saveStatus }) => {
   const [activeTab, setActiveTab] = useState<'write' | 'preview'>('write');
 
   // Simple markdown renderer for preview
@@ -21,8 +22,8 @@ const Editor: React.FC<EditorProps> = ({ note, onUpdate, onAnalyze, saveStatus }
       .replace(/^### (.*$)/gim, '<h3 class="text-xl font-medium mb-2 text-cognito-green">$1</h3>')
       .replace(/\*\*(.*)\*\*/gim, '<strong class="text-cognito-yellow">$1</strong>')
       .replace(/\*(.*)\*/gim, '<em class="text-gray-300">$1</em>')
-      // Changed: Removed the literal [[ and ]] from the replacement string
-      .replace(/\[\[(.*?)\]\]/g, '<span class="text-cognito-pink underline cursor-pointer hover:text-white transition-colors" title="Link interno">$1</span>')
+      // Changed: Add data-link-target attribute to identify the link target
+      .replace(/\[\[(.*?)\]\]/g, '<span class="text-cognito-pink underline cursor-pointer hover:text-white transition-colors" data-link-target="$1" title="Ir para $1">$1</span>')
       .replace(/\n/gim, '<br />');
     return { __html: html };
   };
@@ -41,6 +42,15 @@ const Editor: React.FC<EditorProps> = ({ note, onUpdate, onAnalyze, saveStatus }
       title: e.target.value,
       lastModified: Date.now()
     });
+  };
+
+  const handlePreviewClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    // Check if the clicked element is our link span
+    if (target.tagName === 'SPAN' && target.dataset.linkTarget) {
+      e.preventDefault();
+      onNavigate(target.dataset.linkTarget);
+    }
   };
 
   // Status icon logic
@@ -125,6 +135,7 @@ const Editor: React.FC<EditorProps> = ({ note, onUpdate, onAnalyze, saveStatus }
         ) : (
           <div 
             className="w-full h-full p-6 overflow-y-auto prose prose-invert max-w-none"
+            onClick={handlePreviewClick} // Event delegation wrapper
             dangerouslySetInnerHTML={renderMarkdown(note.content)}
           />
         )}

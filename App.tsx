@@ -14,7 +14,8 @@ import {
   Search,
   Settings,
   X,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -27,19 +28,22 @@ const App: React.FC = () => {
   // Auto-save states
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
   const [typingTimeout, setTypingTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiResponse, setAiResponse] = useState<string>('');
   const [aiLoading, setAiLoading] = useState(false);
 
-  // Load notes on mount
+  // Load notes on mount and Sync with Drive
   useEffect(() => {
+    // 1. Load Local
     const loadedNotes = StorageService.getNotesFromLocal();
     setNotes(loadedNotes);
+    
     if (loadedNotes.length > 0) {
-      setActiveNoteId(loadedNotes[0].id);
+      if (!activeNoteId) setActiveNoteId(loadedNotes[0].id);
     } else {
-        // Create default welcome note
+        // Default note logic...
         const welcome: Note = {
             id: 'welcome-note',
             title: 'Bem-vindo ao Cognito',
@@ -50,7 +54,39 @@ const App: React.FC = () => {
         setNotes([welcome]);
         setActiveNoteId(welcome.id);
     }
-  }, []);
+
+    // 2. Sync from Drive (Background)
+    const syncDrive = async () => {
+        setIsSyncing(true);
+        // Explicitly cast to Note[] to fix TypeScript 'unknown' type error
+        const driveNotes = await StorageService.fetchNotesFromDrive() as Note[];
+        
+        if (driveNotes.length > 0) {
+            setNotes(prevNotes => {
+                const newNoteMap = new Map(prevNotes.map(n => [n.title, n]));
+                let hasChanges = false;
+
+                driveNotes.forEach((dNote: Note) => {
+                    const localNote = newNoteMap.get(dNote.title);
+                    // If local doesn't exist OR Drive is newer, update/add
+                    if (!localNote || (dNote.lastModified > (localNote.lastModified || 0))) {
+                        // Use local ID if exists to preserve active state/graph, else new ID
+                        const noteToSave = { ...dNote, id: localNote ? localNote.id : dNote.id };
+                        newNoteMap.set(dNote.title, noteToSave);
+                        StorageService.saveNoteToLocal(noteToSave);
+                        hasChanges = true;
+                    }
+                });
+
+                return hasChanges ? Array.from(newNoteMap.values()) : prevNotes;
+            });
+        }
+        setIsSyncing(false);
+    };
+
+    syncDrive();
+
+  }, []); // Run once on mount
 
   const createNote = () => {
     const newNote: Note = {
@@ -89,11 +125,24 @@ const App: React.FC = () => {
         setSaveStatus('saved');
       } catch (error) {
         console.error("Auto-save failed", error);
-        setSaveStatus('unsaved'); // Retry logic could be added here
+        setSaveStatus('unsaved'); 
       }
     }, 2000);
 
     setTypingTimeout(timeout);
+  };
+
+  const handleNavigate = (title: string) => {
+      // Find note by title (case insensitive)
+      const targetNote = notes.find(n => n.title.toLowerCase() === title.toLowerCase());
+      if (targetNote) {
+          setActiveNoteId(targetNote.id);
+          // If we are in graph only mode, switch to split or editor to see the note
+          if (viewMode === ViewMode.GRAPH) setViewMode(ViewMode.SPLIT);
+      } else {
+          // Optional: You could ask to create the note here.
+          alert(`Nota "${title}" ainda não existe.`);
+      }
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,8 +162,6 @@ const App: React.FC = () => {
           };
           StorageService.saveNoteToLocal(newNote);
           setNotes(prev => [...prev, newNote]);
-          
-          // Trigger initial save to drive for imported notes
           StorageService.saveNoteToDrive(newNote); 
         };
         reader.readAsText(file);
@@ -180,8 +227,9 @@ const App: React.FC = () => {
           ))}
         </div>
         
-        <div className="p-4 border-t border-cognito-border text-xs text-gray-600 text-center">
-            {notes.length} notas armazenadas localmente
+        <div className="p-4 border-t border-cognito-border text-xs text-gray-600 text-center flex items-center justify-center space-x-2">
+            <span>{notes.length} notas</span>
+            {isSyncing && <RefreshCw size={12} className="animate-spin text-cognito-green" />}
         </div>
       </div>
 
@@ -245,6 +293,7 @@ const App: React.FC = () => {
                             note={activeNote} 
                             onUpdate={updateNote}
                             onAnalyze={handleAnalyze}
+                            onNavigate={handleNavigate}
                             saveStatus={saveStatus}
                         />
                     ) : (
