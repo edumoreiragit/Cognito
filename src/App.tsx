@@ -76,7 +76,6 @@ const App: React.FC = () => {
                     const dNote = item as Note;
                     const localNote = newNoteMap.get(dNote.title);
                     // If local doesn't exist OR Drive is newer, update/add
-                    // Cast to any to avoid unknown type error
                     const remoteLastModified = (dNote as any).lastModified || 0;
                     const localLastModified = localNote ? (localNote.lastModified || 0) : 0;
                     

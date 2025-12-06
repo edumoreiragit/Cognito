@@ -35,13 +35,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }
   };
 
   const generateGasCode = () => {
-    const targetFolderId = folderId.trim() || "1t4wFInpUaQKZqVsYYrERURmnJjJChkp5"; // Default fallback to user's folder
+    const targetFolderId = folderId.trim() || "1t4wFInpUaQKZqVsYYrERURmnJjJChkp5"; 
     
-    return `// CÓDIGO DO SERVIDOR COGNITO ATUALIZADO (SUPORTE A RENAME/DELETE)
+    return `// CÓDIGO DO SERVIDOR COGNITO (VERSÃO ROBUSTA)
 // Copie e cole este código no arquivo 'Código.gs' do seu projeto Google Apps Script
 
 function doGet(e) {
-  // ID da pasta configurada no App
   const folderId = "${targetFolderId}"; 
   const folder = DriveApp.getFolderById(folderId);
   const files = folder.getFilesByType("text/markdown");
@@ -63,45 +62,50 @@ function doGet(e) {
 }
 
 function doPost(e) {
-  const data = JSON.parse(e.postData.contents);
-  const folderId = "${targetFolderId}"; 
-  const folder = DriveApp.getFolderById(folderId);
-  
-  let result = {};
-
   try {
+    const data = JSON.parse(e.postData.contents);
+    const folderId = "${targetFolderId}"; 
+    const folder = DriveApp.getFolderById(folderId);
+    let result = {};
+
     // AÇÃO: SALVAR (CRIAR OU ATUALIZAR)
     if (data.action === "save") {
-      const fileName = data.title + ".md";
+      const fileName = data.title.trim() + ".md"; // Garante que não há espaços extras
       const files = folder.getFilesByName(fileName);
       
       if (files.hasNext()) {
         const file = files.next();
-        file.setContent(data.content || ""); // Handle empty content
+        file.setContent(data.content || ""); 
       } else {
         folder.createFile(fileName, data.content || "", "text/markdown");
       }
-      
       result = {status: "success"};
     }
     
     // AÇÃO: EXCLUIR (MOVER PARA LIXEIRA)
     else if (data.action === "delete") {
-      const fileName = data.title + ".md";
+      // Tenta encontrar pelo nome exato
+      const fileName = data.title.trim() + ".md";
       const files = folder.getFilesByName(fileName);
+      let deletedCount = 0;
       
       while (files.hasNext()) {
         const file = files.next();
         file.setTrashed(true);
+        deletedCount++;
       }
       
-      result = {status: "deleted"};
+      if (deletedCount === 0) {
+         result = {status: "warning", message: "File not found to delete"};
+      } else {
+         result = {status: "deleted"};
+      }
     }
 
     // AÇÃO: RENOMEAR
     else if (data.action === "rename") {
-      const oldName = data.oldTitle + ".md";
-      const newName = data.newTitle + ".md";
+      const oldName = data.oldTitle.trim() + ".md";
+      const newName = data.newTitle.trim() + ".md";
       const files = folder.getFilesByName(oldName);
       
       if (files.hasNext()) {
@@ -114,12 +118,14 @@ function doPost(e) {
     } else {
       result = {status: "error", error: "Invalid action"};
     }
-  } catch (err) {
-    result = {status: "error", error: err.toString()};
-  }
 
-  return ContentService.createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({status: "error", error: err.toString()}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 }`;
   };
 
@@ -222,7 +228,7 @@ function doPost(e) {
               <div className="border border-cognito-border rounded-lg p-5 bg-[#1a1a1a]">
                 <h3 className="text-lg font-bold text-cognito-green mb-2">1. Copiar Novo Código</h3>
                 <p className="text-sm text-gray-400 mb-4">
-                  Seu código atual no Google Apps Script não suporta exclusão ou renomeação. Copie o código abaixo que corrige isso.
+                  Seu código atual no Google Apps Script pode estar desatualizado. Este código abaixo inclui correções de exclusão e renomeação.
                 </p>
                 <div className="relative mt-2">
                   <div className="absolute top-2 right-2">
@@ -245,21 +251,22 @@ function doPost(e) {
                 <h3 className="text-lg font-bold text-cognito-yellow mb-2">2. Atualizar o Script</h3>
                 <ol className="list-decimal list-inside space-y-2 text-gray-300 text-sm">
                   <li>Acesse <a href="https://script.google.com/" target="_blank" className="text-blue-400 underline">script.google.com</a> e abra seu projeto.</li>
-                  <li><strong>Apague TODO o código existente</strong> no arquivo <code>Código.gs</code>.</li>
-                  <li>Cole o código novo que você copiou acima.</li>
+                  <li>Cole o código novo que você copiou acima no arquivo <code>Código.gs</code>, substituindo o anterior.</li>
                   <li>Clique no ícone de disquete para Salvar.</li>
                 </ol>
               </div>
 
               {/* Step 3 */}
               <div className="border border-cognito-border rounded-lg p-5 bg-[#1a1a1a]">
-                <h3 className="text-lg font-bold text-cognito-pink mb-2">3. Re-implantar (Importante!)</h3>
+                <h3 className="text-lg font-bold text-cognito-pink mb-2">3. Re-implantar (CRÍTICO)</h3>
+                <p className="text-sm text-gray-400 mb-2">
+                    A exclusão não funcionará se você pular esta etapa! O Google não atualiza o código do Web App automaticamente.
+                </p>
                 <ol className="list-decimal list-inside space-y-2 text-gray-300 text-sm">
-                  <li>No Apps Script, clique no botão azul <strong>Implantar</strong> &gt; <strong>Gerenciar implantações</strong>.</li>
-                  <li>Clique no ícone de lápis (Editar).</li>
-                  <li>Em "Versão", selecione <strong>Nova versão</strong>.</li>
+                  <li>No Apps Script, clique no botão azul <strong>Implantar (Deploy)</strong> &gt; <strong>Gerenciar implantações</strong>.</li>
+                  <li>Clique no ícone de lápis (Editar) no canto superior direito.</li>
+                  <li>Em "Versão", mude para <strong>Nova versão</strong>.</li>
                   <li>Clique em <strong>Implantar</strong>.</li>
-                  <li>Não precisa mudar a URL no App se for o mesmo projeto.</li>
                 </ol>
               </div>
             </div>

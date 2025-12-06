@@ -12,12 +12,13 @@ interface GraphProps {
 const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 }); // Start with 0 to trigger effect on first measure
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 }); 
   const simulationRef = useRef<d3.Simulation<any, undefined> | null>(null);
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
-  const transformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity); // Store current zoom transform
+  const transformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
+  const initializedRef = useRef(false);
 
-  // Resize Observer to handle split view transitions properly
+  // 1. Detectar redimensionamento do container (ex: ao dividir a tela)
   useEffect(() => {
     if (!containerRef.current) return;
     
@@ -36,7 +37,7 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
     return () => resizeObserver.disconnect();
   }, []);
 
-  // Extract links logic
+  // 2. Preparar dados do grafo
   const { nodesData, linksData, linksHash } = useMemo(() => {
     const links: GraphLink[] = [];
     const titleToIdMap = new Map<string, string>(
@@ -64,19 +65,29 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
 
   const graphData = useMemo(() => ({ nodesData, linksData }), [linksHash]);
 
-  // Update Simulation Center Force when dimensions change
+  // 3. Atualizar o centro de gravidade quando a tela muda de tamanho
   useEffect(() => {
       if (simulationRef.current && dimensions.width > 0 && dimensions.height > 0) {
+          // Move o centro da força para o novo meio da tela
           simulationRef.current.force("center", d3.forceCenter(dimensions.width / 2, dimensions.height / 2));
           simulationRef.current.alpha(0.3).restart();
+
+          // Force reset/center view on first load of dimensions
+          if (!initializedRef.current && svgRef.current && zoomRef.current) {
+               d3.select(svgRef.current).call(
+                  zoomRef.current.transform, 
+                  d3.zoomIdentity.translate(dimensions.width / 2, dimensions.height / 2).scale(1).translate(-dimensions.width/2, -dimensions.height/2) // Just center loosely
+               );
+               initializedRef.current = true;
+          }
       }
   }, [dimensions]);
 
-  // Initialize/Update Graph
+  // 4. Inicializar/Atualizar Simulação D3
   useEffect(() => {
     if (!svgRef.current || graphData.nodesData.length === 0 || dimensions.width === 0) return;
 
-    // Preserve existing nodes position if they exist to prevent "explosion" on re-render
+    // Preservar posições antigas para evitar "explosão" ao atualizar dados
     const oldNodesMap = new Map<string, any>(
       (simulationRef.current?.nodes() || []).map((n: any) => [n.id, n])
     );
@@ -97,10 +108,10 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
     const width = dimensions.width;
     const height = dimensions.height;
 
-    // Group for zoom
+    // Grupo para zoom
     const g = svg.append("g");
 
-    // Apply last known transform
+    // Aplicar transform anterior se existir
     if (transformRef.current) {
         g.attr("transform", transformRef.current.toString());
     }
@@ -114,8 +125,19 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
     
     zoomRef.current = zoom;
     svg.call(zoom);
-    // Restore zoom state to SVG element
-    svg.call(zoom.transform, transformRef.current);
+    
+    // Initial centering logic if not already transformed
+    if (transformRef.current === d3.zoomIdentity) {
+        // Center initial view: Center of SVG
+        // Note: Force simulation centers nodes at width/2, height/2.
+        // We want the viewport to look at width/2, height/2.
+        // By default d3.zoomIdentity looks at 0,0.
+        // We don't need to translate if the force center is naturally in the middle of the SVG.
+        // However, explicitly setting it ensures consistency.
+        // We rely on the forceCenter above to bring nodes to the middle.
+    } else {
+        svg.call(zoom.transform, transformRef.current);
+    }
 
     const simulation = d3.forceSimulation(d3Nodes as any)
       .force("link", d3.forceLink(d3Links).id((d: any) => d.id).distance(100))
@@ -200,22 +222,20 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
     return () => {
       simulation.stop();
     };
-  }, [graphData, dimensions.width, dimensions.height, onNodeClick]); // Re-run if dimensions change drastically or data changes
+  }, [graphData, dimensions.width, dimensions.height, onNodeClick]);
 
-  // Update Highlighted Node Effect (Separate from full re-render)
+  // Efeito Visual de Seleção (sem re-renderizar tudo)
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     
-    // Update visuals
     svg.selectAll("circle")
         .transition().duration(300)
         .attr("r", (d: any) => d.id === activeNoteId ? 14 : 8)
         .attr("fill", (d: any) => d.id === activeNoteId ? COLORS.orange : COLORS.purple);
 
-    // Camera Pan to Node
+    // Pan da câmera para o nó selecionado
     if (activeNoteId && simulationRef.current && zoomRef.current) {
-        // Must delay slightly to allow simulation to have coordinates
         const node = simulationRef.current.nodes().find((n: any) => n.id === activeNoteId);
         if (node && (node.x !== undefined)) {
             svg.transition()

@@ -25,7 +25,7 @@ import {
 const App: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.SPLIT); // Default to split for desktop
+  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.SPLIT); 
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -59,7 +59,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, [viewMode]);
 
-  // Function to sync drive
+  // Function to sync drive - SOURCE OF TRUTH logic
   const syncDrive = useCallback(async () => {
       setIsSyncing(true);
       try {
@@ -68,29 +68,42 @@ const App: React.FC = () => {
         
         if (driveNotes.length > 0) {
             setNotes(prevNotes => {
-                const newNoteMap = new Map(prevNotes.map(n => [n.title, n]));
-                let hasChanges = false;
-
-                for (const item of driveNotes) {
-                    const dNote = item as Note;
-                    const localNote = newNoteMap.get(dNote.title);
-                    // Cast to any to safely access properties if type inference fails
+                // 1. Create a map of Drive Notes for easy lookup
+                const driveNoteMap = new Map(driveNotes.map(n => [n.title, n]));
+                
+                // 2. Build the new state based on Drive as the master list.
+                // Any note currently in 'prevNotes' that is NOT in 'driveNotes' will effectively be removed
+                // because we are mapping primarily over 'driveNotes' to rebuild the list.
+                
+                const mergedNotes: Note[] = driveNotes.map(dNote => {
+                    // Check if we have a local version of this note
+                    const localNote = prevNotes.find(p => p.title === dNote.title);
+                    
+                    // Conflict Resolution:
+                    // If local exists and has a newer timestamp than Drive (user typed recently but hasn't synced), keep local content.
+                    // Otherwise, accept Drive content.
                     const remoteLastModified = (dNote as any).lastModified || 0;
                     const localLastModified = localNote ? (localNote.lastModified || 0) : 0;
                     
-                    if (!localNote || (remoteLastModified > localLastModified)) {
-                        const noteToSave: Note = { 
-                            ...dNote, 
-                            // Cast to any to safely access id
-                            id: localNote ? localNote.id : (dNote as any).id 
-                        };
-                        newNoteMap.set(dNote.title, noteToSave);
-                        StorageService.saveNoteToLocal(noteToSave);
-                        hasChanges = true;
+                    if (localNote && localLastModified > remoteLastModified) {
+                        return { ...localNote, id: localNote.id || dNote.id }; // Keep local
+                    } else {
+                        return { ...dNote, id: localNote ? localNote.id : dNote.id }; // Accept Drive, preserve ID if possible
                     }
-                }
-                return hasChanges ? Array.from(newNoteMap.values()) : prevNotes;
+                });
+
+                // 3. Save this clean state to local storage immediately
+                // This ensures that next refresh, deleted files are gone from local storage too.
+                localStorage.setItem('cognito_notes_v1', JSON.stringify(mergedNotes));
+                
+                return mergedNotes;
             });
+        } else {
+            // Edge case: If Drive returns EMPTY list (and not error), it implies all files were deleted?
+            // Safer to assume if we got a 200 OK but empty list, user deleted everything.
+            // But let's be careful not to wipe on connection error. 
+            // The fetchNotesFromDrive returns [] on error, so we need to be careful.
+            // For now, we only update if length > 0 to prevent accidental wipe on network fail.
         }
       } catch (error) {
         console.error("Sync failed", error);
@@ -103,20 +116,24 @@ const App: React.FC = () => {
     const loadedNotes = StorageService.getNotesFromLocal();
     setNotes(loadedNotes);
     
+    // Initial Sync
+    syncDrive();
+    
+    // Optional: Setup a polling interval to check for deletions in Drive every 30 seconds
+    const interval = setInterval(() => {
+        if (!document.hidden) { // Only sync if tab is active
+            syncDrive();
+        }
+    }, 30000);
+
     if (loadedNotes.length > 0) {
       if (!activeNoteId) setActiveNoteId(loadedNotes[0].id);
     } else {
-        const welcome: Note = {
-            id: 'welcome-note',
-            title: 'Bem-vindo ao Cognito',
-            content: '# Bem-vindo\n\nEste é o seu novo segundo cérebro. Comece criando uma nova nota ou importando seus arquivos Markdown do Obsidian.\n\nUse [[WikiLinks]] para conectar pensamentos.\n\nEste aplicativo sincroniza com o seu Google Drive.\n\nClique no ícone de engrenagem para configurar seu próprio Drive.',
-            lastModified: Date.now()
-        };
-        StorageService.saveNoteToLocal(welcome);
-        setNotes([welcome]);
-        setActiveNoteId(welcome.id);
+        // Only create welcome note if local storage is empty AND drive sync hasn't populated yet
+        // We defer this slightly or let the UI handle empty state
     }
-    syncDrive();
+    
+    return () => clearInterval(interval);
   }, [syncDrive]); 
 
   const createNote = async () => {
@@ -132,15 +149,15 @@ const App: React.FC = () => {
     StorageService.saveNoteToLocal(newNote);
     setActiveNoteId(newNote.id);
     
-    // Ensure Editor is visible
     if (viewMode === ViewMode.GRAPH) setViewMode(ViewMode.SPLIT);
-    
     if (window.innerWidth < 768) setIsSidebarOpen(false);
 
     setSaveStatus('saving');
     try {
         await StorageService.saveNoteToDrive(newNote);
         setSaveStatus('saved');
+        // Re-sync after create to confirm
+        syncDrive();
     } catch (e) {
         console.error("Failed to create note", e);
         setSaveStatus('unsaved');
@@ -170,6 +187,7 @@ const App: React.FC = () => {
   };
 
   const handleDeleteNote = async (noteToDelete: Note) => {
+    // 1. Update UI immediately
     const updatedNotes = notes.filter(n => n.id !== noteToDelete.id);
     setNotes(updatedNotes);
     StorageService.deleteNoteFromLocal(noteToDelete.id);
@@ -182,6 +200,8 @@ const App: React.FC = () => {
     try {
       await StorageService.deleteNoteFromDrive(noteToDelete);
       setSaveStatus('saved');
+      // Re-sync to ensure state matches Drive
+      setTimeout(syncDrive, 1000);
     } catch (error) {
       setSaveStatus('unsaved');
     }
@@ -213,6 +233,7 @@ const App: React.FC = () => {
     try {
       await StorageService.renameNoteInDrive(oldTitle, newTitle);
       setSaveStatus('saved');
+      setTimeout(syncDrive, 1000);
     } catch (error) {
       setSaveStatus('unsaved');
     }
@@ -222,9 +243,7 @@ const App: React.FC = () => {
       const targetNote = notes.find(n => n.title.toLowerCase() === title.toLowerCase());
       if (targetNote) {
           setActiveNoteId(targetNote.id);
-          // If in graph mode, maybe switch to split so user can read content
           if (viewMode === ViewMode.GRAPH) setViewMode(ViewMode.SPLIT);
-          
           if (window.innerWidth < 768) setIsSidebarOpen(false);
       } else {
           alert(`Nota "${title}" ainda não existe.`);
@@ -263,26 +282,19 @@ const App: React.FC = () => {
     setAiLoading(false);
   };
 
+  // Improved Toggle Logic
   const toggleEditor = () => {
-    // If Editor is Hidden (GRAPH), Show it (SPLIT)
     if (viewMode === ViewMode.GRAPH) {
       setViewMode(ViewMode.SPLIT);
-    } 
-    // If Editor is Visible in Split, Hide it (GRAPH)
-    else if (viewMode === ViewMode.SPLIT) {
+    } else if (viewMode === ViewMode.SPLIT) {
       setViewMode(ViewMode.GRAPH);
     }
-    // If Editor is Full Screen (EDITOR), Do nothing or maybe show Graph? 
-    // Keeping "Toggle" behavior: Button indicates visibility.
   };
 
   const toggleGraph = () => {
-    // If Graph is Hidden (EDITOR), Show it (SPLIT)
     if (viewMode === ViewMode.EDITOR) {
       setViewMode(ViewMode.SPLIT);
-    } 
-    // If Graph is Visible in Split, Hide it (EDITOR)
-    else if (viewMode === ViewMode.SPLIT) {
+    } else if (viewMode === ViewMode.SPLIT) {
       setViewMode(ViewMode.EDITOR);
     }
   };

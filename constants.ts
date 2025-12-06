@@ -1,7 +1,7 @@
 export const APP_NAME = "Cognito";
 
 // Default URL provided by the developer. Users can override this in settings.
-export const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbzJTGk9afSjxMDiBvMxg0eS1AKOGiagh_eFxfz7TTz_H9PkXt5BPchoaMiEJduoEjmsRA/exec";
+export const GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwkeLsznYguqRaFpIfHSYQY0kijkPIL5ZqSv-PQ1K8vmgB_RldGAjxYXHEAWcDlPd0AJA/exec";
 
 // In a real deployment, strictly use process.env.API_KEY. 
 // For this specific request, the user provided a key which we are using as a fallback if the env var isn't set.
