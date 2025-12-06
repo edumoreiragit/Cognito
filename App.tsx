@@ -4,6 +4,7 @@ import * as StorageService from './services/storageService';
 import * as GeminiService from './services/geminiService';
 import Graph from './components/Graph';
 import Editor from './components/Editor';
+import SettingsModal from './components/SettingsModal';
 import { 
   Network, 
   FileText, 
@@ -24,6 +25,7 @@ const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.SPLIT);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   // Auto-save states
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
@@ -33,6 +35,46 @@ const App: React.FC = () => {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiResponse, setAiResponse] = useState<string>('');
   const [aiLoading, setAiLoading] = useState(false);
+
+  // Function to sync drive, wrapped in useCallback to pass to children if needed
+  const syncDrive = useCallback(async () => {
+      setIsSyncing(true);
+      try {
+        const result = await StorageService.fetchNotesFromDrive();
+        // Ensure result is treated as Note array
+        const driveNotes: Note[] = Array.isArray(result) ? result : [];
+        
+        if (driveNotes.length > 0) {
+            setNotes(prevNotes => {
+                const newNoteMap = new Map(prevNotes.map(n => [n.title, n]));
+                let hasChanges = false;
+
+                for (const dNote of driveNotes) {
+                    const localNote = newNoteMap.get(dNote.title);
+                    // If local doesn't exist OR Drive is newer, update/add
+                    const remoteLastModified = dNote.lastModified || 0;
+                    const localLastModified = localNote ? (localNote.lastModified || 0) : 0;
+                    
+                    if (!localNote || (remoteLastModified > localLastModified)) {
+                        // Use local ID if exists to preserve active state/graph, else new ID
+                        const noteToSave: Note = { 
+                            ...dNote, 
+                            id: localNote ? localNote.id : dNote.id 
+                        };
+                        newNoteMap.set(dNote.title, noteToSave);
+                        StorageService.saveNoteToLocal(noteToSave);
+                        hasChanges = true;
+                    }
+                }
+
+                return hasChanges ? Array.from(newNoteMap.values()) : prevNotes;
+            });
+        }
+      } catch (error) {
+        console.error("Sync failed", error);
+      }
+      setIsSyncing(false);
+  }, []);
 
   // Load notes on mount and Sync with Drive
   useEffect(() => {
@@ -47,7 +89,7 @@ const App: React.FC = () => {
         const welcome: Note = {
             id: 'welcome-note',
             title: 'Bem-vindo ao Cognito',
-            content: '# Bem-vindo\n\nEste é o seu novo segundo cérebro. Comece criando uma nova nota ou importando seus arquivos Markdown do Obsidian.\n\nUse [[WikiLinks]] para conectar pensamentos.\n\nEste aplicativo sincroniza com o seu Google Drive.',
+            content: '# Bem-vindo\n\nEste é o seu novo segundo cérebro. Comece criando uma nova nota ou importando seus arquivos Markdown do Obsidian.\n\nUse [[WikiLinks]] para conectar pensamentos.\n\nEste aplicativo sincroniza com o seu Google Drive.\n\nClique no ícone de engrenagem para configurar seu próprio Drive.',
             lastModified: Date.now()
         };
         StorageService.saveNoteToLocal(welcome);
@@ -56,37 +98,9 @@ const App: React.FC = () => {
     }
 
     // 2. Sync from Drive (Background)
-    const syncDrive = async () => {
-        setIsSyncing(true);
-        // Explicitly cast to Note[] to fix TypeScript 'unknown' type error
-        const driveNotes = await StorageService.fetchNotesFromDrive() as Note[];
-        
-        if (driveNotes.length > 0) {
-            setNotes(prevNotes => {
-                const newNoteMap = new Map(prevNotes.map(n => [n.title, n]));
-                let hasChanges = false;
-
-                driveNotes.forEach((dNote: Note) => {
-                    const localNote = newNoteMap.get(dNote.title);
-                    // If local doesn't exist OR Drive is newer, update/add
-                    if (!localNote || (dNote.lastModified > (localNote.lastModified || 0))) {
-                        // Use local ID if exists to preserve active state/graph, else new ID
-                        const noteToSave = { ...dNote, id: localNote ? localNote.id : dNote.id };
-                        newNoteMap.set(dNote.title, noteToSave);
-                        StorageService.saveNoteToLocal(noteToSave);
-                        hasChanges = true;
-                    }
-                });
-
-                return hasChanges ? Array.from(newNoteMap.values()) : prevNotes;
-            });
-        }
-        setIsSyncing(false);
-    };
-
     syncDrive();
 
-  }, []); // Run once on mount
+  }, [syncDrive]); 
 
   const createNote = () => {
     const newNote: Note = {
@@ -177,6 +191,11 @@ const App: React.FC = () => {
     setAiLoading(false);
   };
 
+  const handleConfigSave = () => {
+      // Refresh sync after config change
+      syncDrive();
+  };
+
   const activeNote = notes.find(n => n.id === activeNoteId);
   const filteredNotes = notes.filter(n => 
     n.title.toLowerCase().includes(searchQuery.toLowerCase())
@@ -184,6 +203,13 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen bg-cognito-dark text-gray-200 overflow-hidden font-sans">
+      {/* Settings Modal */}
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
+        onSave={handleConfigSave}
+      />
+
       {/* Sidebar */}
       <div className={`flex flex-col border-r border-cognito-border bg-black/40 backdrop-blur-md transition-all duration-300 ${isSidebarOpen ? 'w-64' : 'w-0 opacity-0 overflow-hidden'}`}>
         <div className="p-4 flex items-center justify-between border-b border-cognito-border">
@@ -227,9 +253,18 @@ const App: React.FC = () => {
           ))}
         </div>
         
-        <div className="p-4 border-t border-cognito-border text-xs text-gray-600 text-center flex items-center justify-center space-x-2">
-            <span>{notes.length} notas</span>
-            {isSyncing && <RefreshCw size={12} className="animate-spin text-cognito-green" />}
+        <div className="p-4 border-t border-cognito-border text-xs text-gray-600 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+                <span>{notes.length} notas</span>
+                {isSyncing && <RefreshCw size={12} className="animate-spin text-cognito-green" />}
+            </div>
+            <button 
+                onClick={() => setIsSettingsOpen(true)}
+                className="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors"
+                title="Configurações"
+            >
+                <Settings size={14} />
+            </button>
         </div>
       </div>
 
