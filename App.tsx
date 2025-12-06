@@ -41,8 +41,8 @@ const App: React.FC = () => {
       setIsSyncing(true);
       try {
         const result = await StorageService.fetchNotesFromDrive();
-        // Ensure result is treated as Note array
-        const driveNotes: Note[] = Array.isArray(result) ? result : [];
+        // Ensure result is treated as Note array and cast explicitly to avoid 'unknown' type inference issues
+        const driveNotes = (Array.isArray(result) ? result : []) as Note[];
         
         if (driveNotes.length > 0) {
             setNotes(prevNotes => {
@@ -144,6 +144,30 @@ const App: React.FC = () => {
     }, 2000);
 
     setTypingTimeout(timeout);
+  };
+
+  const handleDeleteNote = async (noteToDelete: Note) => {
+    // 1. Update UI immediately
+    const updatedNotes = notes.filter(n => n.id !== noteToDelete.id);
+    setNotes(updatedNotes);
+    
+    // 2. Update LocalStorage
+    StorageService.deleteNoteFromLocal(noteToDelete.id);
+    
+    // 3. Update Active Note
+    if (activeNoteId === noteToDelete.id) {
+      setActiveNoteId(updatedNotes.length > 0 ? updatedNotes[0].id : null);
+    }
+
+    // 4. Delete from Drive
+    setSaveStatus('saving');
+    try {
+      await StorageService.deleteNoteFromDrive(noteToDelete);
+      setSaveStatus('saved');
+    } catch (error) {
+      console.error("Delete from drive failed", error);
+      setSaveStatus('unsaved');
+    }
   };
 
   const handleNavigate = (title: string) => {
@@ -329,6 +353,7 @@ const App: React.FC = () => {
                             onUpdate={updateNote}
                             onAnalyze={handleAnalyze}
                             onNavigate={handleNavigate}
+                            onDelete={handleDeleteNote}
                             saveStatus={saveStatus}
                         />
                     ) : (

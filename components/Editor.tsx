@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Note } from '../types';
-import { Cloud, Check, BrainCircuit, Loader2, CloudUpload } from 'lucide-react';
+import { Cloud, Check, BrainCircuit, Loader2, CloudUpload, Trash2 } from 'lucide-react';
 import { COLORS } from '../constants';
 
 interface EditorProps {
@@ -8,10 +8,11 @@ interface EditorProps {
   onUpdate: (updatedNote: Note) => void;
   onAnalyze: (note: Note) => void;
   onNavigate: (title: string) => void;
+  onDelete: (note: Note) => void;
   saveStatus: 'saved' | 'saving' | 'unsaved';
 }
 
-const Editor: React.FC<EditorProps> = ({ note, onUpdate, onAnalyze, onNavigate, saveStatus }) => {
+const Editor: React.FC<EditorProps> = ({ note, onUpdate, onAnalyze, onNavigate, onDelete, saveStatus }) => {
   const [activeTab, setActiveTab] = useState<'write' | 'preview'>('write');
 
   // Simple markdown renderer for preview
@@ -50,6 +51,12 @@ const Editor: React.FC<EditorProps> = ({ note, onUpdate, onAnalyze, onNavigate, 
     if (target.tagName === 'SPAN' && target.dataset.linkTarget) {
       e.preventDefault();
       onNavigate(target.dataset.linkTarget);
+    }
+  };
+
+  const handleDelete = () => {
+    if (window.confirm(`Tem certeza que deseja excluir "${note.title}"? Esta ação moverá o arquivo para a lixeira do Google Drive.`)) {
+      onDelete(note);
     }
   };
 
@@ -119,6 +126,14 @@ const Editor: React.FC<EditorProps> = ({ note, onUpdate, onAnalyze, onNavigate, 
           >
             <BrainCircuit size={18} />
             <span className="hidden xl:inline text-xs">Analisar</span>
+          </button>
+
+          <button 
+            onClick={handleDelete}
+            className="p-2 text-red-500 hover:bg-red-500/10 rounded-full transition-all flex items-center justify-center ml-1"
+            title="Excluir nota"
+          >
+            <Trash2 size={18} />
           </button>
         </div>
       </div>

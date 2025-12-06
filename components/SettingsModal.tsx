@@ -80,6 +80,18 @@ function doPost(e) {
     
     return ContentService.createTextOutput(JSON.stringify({status: "success"}));
   }
+  
+  else if (data.action === "delete") {
+    const fileName = data.title + ".md";
+    const files = folder.getFilesByName(fileName);
+    
+    while (files.hasNext()) {
+      const file = files.next();
+      file.setTrashed(true); // Move para a lixeira em vez de excluir permanentemente
+    }
+    
+    return ContentService.createTextOutput(JSON.stringify({status: "deleted"}));
+  }
 }`;
   };
 
@@ -204,7 +216,7 @@ function doPost(e) {
                 <ol className="list-decimal list-inside space-y-2 text-gray-300 text-sm">
                   <li>Acesse <a href="https://script.google.com/" target="_blank" className="text-blue-400 underline">script.google.com</a> e clique em "Novo Projeto".</li>
                   <li>Apague todo o código existente no arquivo <code>Código.gs</code>.</li>
-                  <li>Copie o código gerado abaixo (ele já inclui o ID da sua pasta):</li>
+                  <li>Copie o código gerado abaixo (ele já inclui o ID da sua pasta e a função de <strong>deletar</strong>):</li>
                 </ol>
                 
                 <div className="relative mt-4">
@@ -229,14 +241,13 @@ function doPost(e) {
                 <ol className="list-decimal list-inside space-y-2 text-gray-300 text-sm">
                   <li>No Apps Script, clique no botão azul <strong>Implantar</strong> &gt; <strong>Nova implantação</strong>.</li>
                   <li>Clique na engrenagem ao lado de "Selecione o tipo" e escolha <strong>App da Web</strong>.</li>
-                  <li>Em "Descrição", digite "Cognito v1".</li>
+                  <li>Em "Descrição", digite "Cognito v2".</li>
                   <li>Em "Executar como", mantenha <strong>Eu</strong>.</li>
                   <li>
-                    <span className="text-red-400 font-bold">IMPORTANTE:</span> Em "Quem pode acessar", selecione <strong>Qualquer pessoa</strong>. (Isso é necessário para o app funcionar sem login complexo do Google).
+                    <span className="text-red-400 font-bold">IMPORTANTE:</span> Em "Quem pode acessar", selecione <strong>Qualquer pessoa</strong>.
                   </li>
                   <li>Clique em <strong>Implantar</strong>.</li>
-                  <li>Copie a <strong>App da Web URL</strong> gerada (termina em <code>/exec</code>).</li>
-                  <li>Vá para a aba "Conexão" neste modal e cole a URL no campo correspondente.</li>
+                  <li>Copie a URL e cole na aba "Conexão".</li>
                 </ol>
               </div>
             </div>
