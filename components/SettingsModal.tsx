@@ -67,6 +67,9 @@ function doPost(e) {
   const folderId = "${targetFolderId}"; 
   const folder = DriveApp.getFolderById(folderId);
   
+  let result = {};
+
+  // AÇÃO: SALVAR (CRIAR OU ATUALIZAR)
   if (data.action === "save") {
     const fileName = data.title + ".md";
     const files = folder.getFilesByName(fileName);
@@ -78,20 +81,41 @@ function doPost(e) {
       folder.createFile(fileName, data.content, "text/markdown");
     }
     
-    return ContentService.createTextOutput(JSON.stringify({status: "success"}));
+    result = {status: "success"};
   }
   
+  // AÇÃO: EXCLUIR (MOVER PARA LIXEIRA)
   else if (data.action === "delete") {
     const fileName = data.title + ".md";
     const files = folder.getFilesByName(fileName);
     
     while (files.hasNext()) {
       const file = files.next();
-      file.setTrashed(true); // Move para a lixeira em vez de excluir permanentemente
+      file.setTrashed(true);
     }
     
-    return ContentService.createTextOutput(JSON.stringify({status: "deleted"}));
+    result = {status: "deleted"};
   }
+
+  // AÇÃO: RENOMEAR
+  else if (data.action === "rename") {
+    const oldName = data.oldTitle + ".md";
+    const newName = data.newTitle + ".md";
+    const files = folder.getFilesByName(oldName);
+    
+    if (files.hasNext()) {
+      const file = files.next();
+      file.setName(newName);
+      result = {status: "renamed"};
+    } else {
+      result = {status: "error", error: "File not found"};
+    }
+  } else {
+    result = {status: "error", error: "Invalid action"};
+  }
+
+  return ContentService.createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
 }`;
   };
 
@@ -216,7 +240,7 @@ function doPost(e) {
                 <ol className="list-decimal list-inside space-y-2 text-gray-300 text-sm">
                   <li>Acesse <a href="https://script.google.com/" target="_blank" className="text-blue-400 underline">script.google.com</a> e clique em "Novo Projeto".</li>
                   <li>Apague todo o código existente no arquivo <code>Código.gs</code>.</li>
-                  <li>Copie o código gerado abaixo (ele já inclui o ID da sua pasta e a função de <strong>deletar</strong>):</li>
+                  <li>Copie o código gerado abaixo (ele inclui as funções de salvar, excluir e <strong>renomear</strong>):</li>
                 </ol>
                 
                 <div className="relative mt-4">
@@ -241,7 +265,7 @@ function doPost(e) {
                 <ol className="list-decimal list-inside space-y-2 text-gray-300 text-sm">
                   <li>No Apps Script, clique no botão azul <strong>Implantar</strong> &gt; <strong>Nova implantação</strong>.</li>
                   <li>Clique na engrenagem ao lado de "Selecione o tipo" e escolha <strong>App da Web</strong>.</li>
-                  <li>Em "Descrição", digite "Cognito v2".</li>
+                  <li>Em "Descrição", digite "Cognito v3".</li>
                   <li>Em "Executar como", mantenha <strong>Eu</strong>.</li>
                   <li>
                     <span className="text-red-400 font-bold">IMPORTANTE:</span> Em "Quem pode acessar", selecione <strong>Qualquer pessoa</strong>.

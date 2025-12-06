@@ -59,7 +59,7 @@ const App: React.FC = () => {
                     const note = dNote as Note;
                     const localNote = newNoteMap.get(note.title);
                     // If local doesn't exist OR Drive is newer, update/add
-                    const remoteLastModified = note.lastModified || 0;
+                    const remoteLastModified = (note as any).lastModified || 0;
                     const localLastModified = localNote ? (localNote.lastModified || 0) : 0;
                     
                     if (!localNote || (remoteLastModified > localLastModified)) {

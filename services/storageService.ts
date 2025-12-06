@@ -149,3 +149,34 @@ export const deleteNoteFromDrive = async (note: Note): Promise<DriveResponse> =>
     return { status: 'unknown', error: error.message };
   }
 };
+
+export const renameNoteInDrive = async (oldTitle: string, newTitle: string): Promise<DriveResponse> => {
+  try {
+    const config = getAppConfig();
+    const endpoint = config.gasUrl;
+
+    const payload = {
+      action: "rename",
+      oldTitle: oldTitle,
+      newTitle: newTitle
+    };
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8', 
+      },
+    });
+
+    if (!response.ok) {
+        return { status: 'error', error: response.statusText };
+    }
+
+    const data = await response.json();
+    return data as DriveResponse;
+  } catch (error: any) {
+    console.warn("Drive rename warning:", error);
+    return { status: 'unknown', error: error.message };
+  }
+};
