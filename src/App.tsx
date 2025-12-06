@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Note, ViewMode } from './types';
-import * as StorageService from './services/storageService';
-import * as GeminiService from './services/geminiService';
-import Graph from './components/Graph';
-import Editor from './components/Editor';
-import SettingsModal from './components/SettingsModal';
+import { Note, ViewMode } from '../types';
+import * as StorageService from '../services/storageService';
+import * as GeminiService from '../services/geminiService';
+import Graph from '../components/Graph';
+import Editor from '../components/Editor';
+import SettingsModal from '../components/SettingsModal';
 import { 
   Network, 
   FileText, 
@@ -18,14 +18,15 @@ import {
   Loader2,
   RefreshCw,
   Edit2,
-  Check
+  Check,
+  Trash2
 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.SPLIT);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.SPLIT); // Start in Split for desktop
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
@@ -42,33 +43,51 @@ const App: React.FC = () => {
   const [aiResponse, setAiResponse] = useState<string>('');
   const [aiLoading, setAiLoading] = useState(false);
 
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 768) {
+        setIsSidebarOpen(true);
+      } else {
+        setIsSidebarOpen(false);
+        // Force single view on mobile
+        setViewMode(ViewMode.EDITOR);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Function to sync drive, wrapped in useCallback to pass to children if needed
   const syncDrive = useCallback(async () => {
       setIsSyncing(true);
       try {
         const result = await StorageService.fetchNotesFromDrive();
-        // Ensure result is treated as Note array and cast explicitly to avoid 'unknown' type inference issues
-        const driveNotes: Note[] = Array.isArray(result) ? (result as Note[]) : [];
+        // Ensure result is treated as Note array with explicit type to avoid inference issues
+        const driveNotes = (Array.isArray(result) ? result : []) as Note[];
         
         if (driveNotes.length > 0) {
             setNotes(prevNotes => {
                 const newNoteMap = new Map(prevNotes.map(n => [n.title, n]));
                 let hasChanges = false;
 
-                for (const dNote of driveNotes) {
-                    const note = dNote as Note;
-                    const localNote = newNoteMap.get(note.title);
+                for (const item of driveNotes) {
+                    const dNote = item as Note;
+                    const localNote = newNoteMap.get(dNote.title);
                     // If local doesn't exist OR Drive is newer, update/add
-                    const remoteLastModified = (note as any).lastModified || 0;
+                    // Cast to any to avoid unknown type error
+                    const remoteLastModified = (dNote as any).lastModified || 0;
                     const localLastModified = localNote ? (localNote.lastModified || 0) : 0;
                     
                     if (!localNote || (remoteLastModified > localLastModified)) {
                         // Use local ID if exists to preserve active state/graph, else new ID
                         const noteToSave: Note = { 
-                            ...note, 
-                            id: localNote ? localNote.id : note.id 
+                            ...dNote, 
+                            // Cast to any to safely access id
+                            id: localNote ? localNote.id : (dNote as any).id 
                         };
-                        newNoteMap.set(note.title, noteToSave);
+                        newNoteMap.set(dNote.title, noteToSave);
                         StorageService.saveNoteToLocal(noteToSave);
                         hasChanges = true;
                     }
@@ -109,20 +128,34 @@ const App: React.FC = () => {
 
   }, [syncDrive]); 
 
-  const createNote = () => {
+  const createNote = async () => {
     const newNote: Note = {
       id: crypto.randomUUID(),
-      title: 'Nota Sem Título',
+      title: 'Nota Sem Título ' + Math.floor(Math.random() * 1000), // Unique title to avoid conflict
       content: '',
       lastModified: Date.now()
     };
+    
     const updatedNotes = [...notes, newNote];
     setNotes(updatedNotes);
     StorageService.saveNoteToLocal(newNote);
     setActiveNoteId(newNote.id);
     
-    // Auto switch to editor if in graph mode
+    // Ensure Editor is visible
     if (viewMode === ViewMode.GRAPH) setViewMode(ViewMode.SPLIT);
+    
+    // Close sidebar on mobile when creating new note
+    if (window.innerWidth < 768) setIsSidebarOpen(false);
+
+    // CRITICAL: Save to Drive immediately upon creation
+    setSaveStatus('saving');
+    try {
+        await StorageService.saveNoteToDrive(newNote);
+        setSaveStatus('saved');
+    } catch (e) {
+        console.error("Failed to create note in drive", e);
+        setSaveStatus('unsaved');
+    }
   };
 
   const updateNote = (updatedNote: Note) => {
@@ -218,8 +251,12 @@ const App: React.FC = () => {
       const targetNote = notes.find(n => n.title.toLowerCase() === title.toLowerCase());
       if (targetNote) {
           setActiveNoteId(targetNote.id);
-          // If we are in graph only mode, switch to split or editor to see the note
+          // If in graph mode, maybe switch to split so user can read? 
+          // Keeping consistent with "don't change layout unless necessary"
           if (viewMode === ViewMode.GRAPH) setViewMode(ViewMode.SPLIT);
+          
+          // Close sidebar on mobile
+          if (window.innerWidth < 768) setIsSidebarOpen(false);
       } else {
           // Optional: You could ask to create the note here.
           alert(`Nota "${title}" ainda não existe.`);
@@ -263,13 +300,36 @@ const App: React.FC = () => {
       syncDrive();
   };
 
+  // Toggle Logic
+  const toggleEditor = () => {
+    if (viewMode === ViewMode.GRAPH) {
+      setViewMode(ViewMode.SPLIT);
+    } else if (viewMode === ViewMode.SPLIT) {
+      setViewMode(ViewMode.GRAPH);
+    }
+    // If EDITOR, do nothing (prevent closing the last view)
+  };
+
+  const toggleGraph = () => {
+    if (viewMode === ViewMode.EDITOR) {
+      setViewMode(ViewMode.SPLIT);
+    } else if (viewMode === ViewMode.SPLIT) {
+      setViewMode(ViewMode.EDITOR);
+    }
+    // If GRAPH, do nothing (prevent closing the last view)
+  };
+
   const activeNote = notes.find(n => n.id === activeNoteId);
+  // Filter notes based on search query
   const filteredNotes = notes.filter(n => 
     n.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const isEditorVisible = viewMode === ViewMode.EDITOR || viewMode === ViewMode.SPLIT;
+  const isGraphVisible = viewMode === ViewMode.GRAPH || viewMode === ViewMode.SPLIT;
+
   return (
-    <div className="flex h-screen w-screen bg-cognito-dark text-gray-200 overflow-hidden font-sans">
+    <div className="flex h-screen w-screen bg-cognito-dark text-gray-200 overflow-hidden font-sans relative">
       {/* Settings Modal */}
       <SettingsModal 
         isOpen={isSettingsOpen} 
@@ -277,8 +337,22 @@ const App: React.FC = () => {
         onSave={handleConfigSave}
       />
 
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/80 z-20 md:hidden backdrop-blur-sm"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className={`flex flex-col border-r border-cognito-border bg-black/40 backdrop-blur-md transition-all duration-300 ${isSidebarOpen ? 'w-64' : 'w-0 opacity-0 overflow-hidden'}`}>
+      <div 
+        className={`
+          flex flex-col border-r border-cognito-border bg-black/95 md:bg-black/40 backdrop-blur-md transition-all duration-300 
+          absolute md:relative z-30 h-full 
+          ${isSidebarOpen ? 'w-64 translate-x-0' : '-translate-x-full w-0 opacity-0 overflow-hidden md:w-0'}
+        `}
+      >
         <div className="p-4 flex items-center justify-between border-b border-cognito-border">
           <h1 className="text-xl font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-cognito-orange to-cognito-pink">
             COGNITO
@@ -311,7 +385,12 @@ const App: React.FC = () => {
           {filteredNotes.map(note => (
             <div 
               key={note.id}
-              onClick={() => setActiveNoteId(note.id)}
+              onClick={() => {
+                  setActiveNoteId(note.id);
+                  if (window.innerWidth < 768) {
+                      setIsSidebarOpen(false); // Auto close on mobile
+                  }
+              }}
               className={`group flex items-center justify-between px-3 py-2 rounded-md cursor-pointer text-sm transition-all ${activeNoteId === note.id ? 'bg-cognito-blue/20 text-cognito-blue' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
             >
               <div className="flex items-center overflow-hidden flex-1">
@@ -342,15 +421,29 @@ const App: React.FC = () => {
                 )}
               </div>
 
-              {/* Rename Button (Visible on Hover) */}
+              {/* Actions (Rename & Delete) */}
               {editingNoteId !== note.id && (
-                <button 
-                  onClick={(e) => handleStartRename(e, note)}
-                  className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-all"
-                  title="Renomear"
-                >
-                  <Edit2 size={12} />
-                </button>
+                <div className="flex items-center ml-2 space-x-1">
+                    <button 
+                      onClick={(e) => handleStartRename(e, note)}
+                      className="p-1.5 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-colors"
+                      title="Renomear"
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                    <button 
+                      onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Tem certeza que deseja excluir "${note.title}"?`)) {
+                              handleDeleteNote(note);
+                          }
+                      }}
+                      className="p-1.5 hover:bg-red-900/30 rounded text-gray-500 hover:text-red-400 transition-colors"
+                      title="Excluir (Mover para Lixeira do Drive)"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                </div>
               )}
             </div>
           ))}
@@ -372,31 +465,25 @@ const App: React.FC = () => {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 bg-cognito-dark relative z-10">
         {/* Header */}
         <header className="h-14 border-b border-cognito-border flex items-center justify-between px-4 bg-[#0a0a0a]">
            <div className="flex items-center space-x-3">
              <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-white/5 rounded">
                 <Layout size={18} />
              </button>
-             <div className="flex bg-[#1a1a1a] rounded-lg p-1">
+             <div className="flex bg-[#1a1a1a] rounded-lg p-1 space-x-1">
                 <button 
-                    onClick={() => setViewMode(ViewMode.EDITOR)}
-                    className={`px-3 py-1 rounded text-xs font-medium transition-colors ${viewMode === ViewMode.EDITOR ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                    onClick={toggleEditor}
+                    className={`px-3 py-1 rounded text-xs font-medium transition-colors ${isEditorVisible ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
                 >
                     Editor
                 </button>
                 <button 
-                    onClick={() => setViewMode(ViewMode.GRAPH)}
-                    className={`px-3 py-1 rounded text-xs font-medium transition-colors ${viewMode === ViewMode.GRAPH ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+                    onClick={toggleGraph}
+                    className={`px-3 py-1 rounded text-xs font-medium transition-colors ${isGraphVisible ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
                 >
                     Grafo
-                </button>
-                <button 
-                    onClick={() => setViewMode(ViewMode.SPLIT)}
-                    className={`px-3 py-1 rounded text-xs font-medium transition-colors ${viewMode === ViewMode.SPLIT ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                >
-                    Dividir
                 </button>
              </div>
            </div>
@@ -410,13 +497,13 @@ const App: React.FC = () => {
         </header>
 
         {/* Workspace */}
-        <main className="flex-1 relative overflow-hidden flex">
+        <main className="flex-1 relative overflow-hidden flex flex-col md:flex-row">
             
             {/* Graph Layer */}
-            {(viewMode === ViewMode.GRAPH || viewMode === ViewMode.SPLIT) && (
-                <div className={`${viewMode === ViewMode.SPLIT ? 'w-1/2 border-r border-cognito-border' : 'w-full'} h-full transition-all duration-300`}>
+            {isGraphVisible && (
+                <div className={`${viewMode === ViewMode.SPLIT ? 'h-1/2 md:h-full w-full md:w-1/2 md:border-r border-b md:border-b-0 border-cognito-border' : 'w-full h-full'} transition-all duration-300`}>
                     <Graph 
-                        notes={notes} 
+                        notes={filteredNotes} 
                         activeNoteId={activeNoteId} 
                         onNodeClick={setActiveNoteId} 
                     />
@@ -424,11 +511,12 @@ const App: React.FC = () => {
             )}
 
             {/* Editor Layer */}
-            {(viewMode === ViewMode.EDITOR || viewMode === ViewMode.SPLIT) && (
-                <div className={`${viewMode === ViewMode.SPLIT ? 'w-1/2' : 'w-full'} h-full transition-all duration-300 bg-cognito-dark p-4`}>
+            {isEditorVisible && (
+                <div className={`${viewMode === ViewMode.SPLIT ? 'h-1/2 md:h-full w-full md:w-1/2' : 'w-full h-full'} transition-all duration-300 bg-cognito-dark flex flex-col border-l border-cognito-border`}>
                     {activeNote ? (
                         <Editor 
                             note={activeNote} 
+                            notes={notes}
                             onUpdate={updateNote}
                             onAnalyze={handleAnalyze}
                             onNavigate={handleNavigate}

@@ -35,9 +35,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onSave }
   };
 
   const generateGasCode = () => {
-    const targetFolderId = folderId.trim() || "SEU_ID_DA_PASTA_AQUI";
+    const targetFolderId = folderId.trim() || "1t4wFInpUaQKZqVsYYrERURmnJjJChkp5"; // Default fallback to user's folder
     
-    return `// CÓDIGO DO SERVIDOR COGNITO
+    return `// CÓDIGO DO SERVIDOR COGNITO ATUALIZADO (SUPORTE A RENAME/DELETE)
 // Copie e cole este código no arquivo 'Código.gs' do seu projeto Google Apps Script
 
 function doGet(e) {
@@ -69,49 +69,53 @@ function doPost(e) {
   
   let result = {};
 
-  // AÇÃO: SALVAR (CRIAR OU ATUALIZAR)
-  if (data.action === "save") {
-    const fileName = data.title + ".md";
-    const files = folder.getFilesByName(fileName);
-    
-    if (files.hasNext()) {
-      const file = files.next();
-      file.setContent(data.content);
-    } else {
-      folder.createFile(fileName, data.content, "text/markdown");
+  try {
+    // AÇÃO: SALVAR (CRIAR OU ATUALIZAR)
+    if (data.action === "save") {
+      const fileName = data.title + ".md";
+      const files = folder.getFilesByName(fileName);
+      
+      if (files.hasNext()) {
+        const file = files.next();
+        file.setContent(data.content || ""); // Handle empty content
+      } else {
+        folder.createFile(fileName, data.content || "", "text/markdown");
+      }
+      
+      result = {status: "success"};
     }
     
-    result = {status: "success"};
-  }
-  
-  // AÇÃO: EXCLUIR (MOVER PARA LIXEIRA)
-  else if (data.action === "delete") {
-    const fileName = data.title + ".md";
-    const files = folder.getFilesByName(fileName);
-    
-    while (files.hasNext()) {
-      const file = files.next();
-      file.setTrashed(true);
+    // AÇÃO: EXCLUIR (MOVER PARA LIXEIRA)
+    else if (data.action === "delete") {
+      const fileName = data.title + ".md";
+      const files = folder.getFilesByName(fileName);
+      
+      while (files.hasNext()) {
+        const file = files.next();
+        file.setTrashed(true);
+      }
+      
+      result = {status: "deleted"};
     }
-    
-    result = {status: "deleted"};
-  }
 
-  // AÇÃO: RENOMEAR
-  else if (data.action === "rename") {
-    const oldName = data.oldTitle + ".md";
-    const newName = data.newTitle + ".md";
-    const files = folder.getFilesByName(oldName);
-    
-    if (files.hasNext()) {
-      const file = files.next();
-      file.setName(newName);
-      result = {status: "renamed"};
+    // AÇÃO: RENOMEAR
+    else if (data.action === "rename") {
+      const oldName = data.oldTitle + ".md";
+      const newName = data.newTitle + ".md";
+      const files = folder.getFilesByName(oldName);
+      
+      if (files.hasNext()) {
+        const file = files.next();
+        file.setName(newName);
+        result = {status: "renamed"};
+      } else {
+        result = {status: "error", error: "File not found"};
+      }
     } else {
-      result = {status: "error", error: "File not found"};
+      result = {status: "error", error: "Invalid action"};
     }
-  } else {
-    result = {status: "error", error: "Invalid action"};
+  } catch (err) {
+    result = {status: "error", error: err.toString()};
   }
 
   return ContentService.createTextOutput(JSON.stringify(result))
@@ -154,7 +158,7 @@ function doPost(e) {
             onClick={() => setActiveTab('tutorial')}
             className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'tutorial' ? 'text-cognito-green border-b-2 border-cognito-green bg-white/5' : 'text-gray-400 hover:text-white'}`}
           >
-            Como Instalar (Tutorial)
+            Atualizar Código (Tutorial)
           </button>
         </div>
 
@@ -216,34 +220,11 @@ function doPost(e) {
             <div className="space-y-8">
               {/* Step 1 */}
               <div className="border border-cognito-border rounded-lg p-5 bg-[#1a1a1a]">
-                <h3 className="text-lg font-bold text-cognito-green mb-2">1. Preparar o Google Drive</h3>
-                <ol className="list-decimal list-inside space-y-2 text-gray-300 text-sm">
-                  <li>Crie uma nova pasta no seu Google Drive (ex: "Cognito Notes").</li>
-                  <li>Abra a pasta e olhe para a URL no navegador.</li>
-                  <li>Copie o código após <code>folders/</code>. Este é o seu <strong>ID da Pasta</strong>.</li>
-                  <li>
-                    <span className="text-cognito-orange">Cole o ID no campo abaixo</span> para gerar seu código personalizado:
-                  </li>
-                </ol>
-                <input 
-                  type="text" 
-                  value={folderId}
-                  onChange={(e) => setFolderId(e.target.value)}
-                  placeholder="Cole o ID da pasta aqui..."
-                  className="mt-3 w-full bg-black border border-gray-700 rounded p-2 text-white font-mono text-sm focus:border-cognito-green focus:outline-none"
-                />
-              </div>
-
-              {/* Step 2 */}
-              <div className="border border-cognito-border rounded-lg p-5 bg-[#1a1a1a]">
-                <h3 className="text-lg font-bold text-cognito-yellow mb-2">2. Criar o Script</h3>
-                <ol className="list-decimal list-inside space-y-2 text-gray-300 text-sm">
-                  <li>Acesse <a href="https://script.google.com/" target="_blank" className="text-blue-400 underline">script.google.com</a> e clique em "Novo Projeto".</li>
-                  <li>Apague todo o código existente no arquivo <code>Código.gs</code>.</li>
-                  <li>Copie o código gerado abaixo (ele inclui as funções de salvar, excluir e <strong>renomear</strong>):</li>
-                </ol>
-                
-                <div className="relative mt-4">
+                <h3 className="text-lg font-bold text-cognito-green mb-2">1. Copiar Novo Código</h3>
+                <p className="text-sm text-gray-400 mb-4">
+                  Seu código atual no Google Apps Script não suporta exclusão ou renomeação. Copie o código abaixo que corrige isso.
+                </p>
+                <div className="relative mt-2">
                   <div className="absolute top-2 right-2">
                     <button 
                       onClick={copyToClipboard}
@@ -253,25 +234,32 @@ function doPost(e) {
                       {copiedCode ? 'Copiado!' : 'Copiar Código'}
                     </button>
                   </div>
-                  <pre className="bg-[#050505] p-4 rounded-lg border border-gray-800 text-xs font-mono text-gray-300 overflow-x-auto h-64">
+                  <pre className="bg-[#050505] p-4 rounded-lg border border-gray-800 text-xs font-mono text-gray-300 overflow-x-auto h-96">
                     <code>{generateGasCode()}</code>
                   </pre>
                 </div>
               </div>
 
+              {/* Step 2 */}
+              <div className="border border-cognito-border rounded-lg p-5 bg-[#1a1a1a]">
+                <h3 className="text-lg font-bold text-cognito-yellow mb-2">2. Atualizar o Script</h3>
+                <ol className="list-decimal list-inside space-y-2 text-gray-300 text-sm">
+                  <li>Acesse <a href="https://script.google.com/" target="_blank" className="text-blue-400 underline">script.google.com</a> e abra seu projeto.</li>
+                  <li><strong>Apague TODO o código existente</strong> no arquivo <code>Código.gs</code>.</li>
+                  <li>Cole o código novo que você copiou acima.</li>
+                  <li>Clique no ícone de disquete para Salvar.</li>
+                </ol>
+              </div>
+
               {/* Step 3 */}
               <div className="border border-cognito-border rounded-lg p-5 bg-[#1a1a1a]">
-                <h3 className="text-lg font-bold text-cognito-pink mb-2">3. Implantar</h3>
+                <h3 className="text-lg font-bold text-cognito-pink mb-2">3. Re-implantar (Importante!)</h3>
                 <ol className="list-decimal list-inside space-y-2 text-gray-300 text-sm">
-                  <li>No Apps Script, clique no botão azul <strong>Implantar</strong> &gt; <strong>Nova implantação</strong>.</li>
-                  <li>Clique na engrenagem ao lado de "Selecione o tipo" e escolha <strong>App da Web</strong>.</li>
-                  <li>Em "Descrição", digite "Cognito v3".</li>
-                  <li>Em "Executar como", mantenha <strong>Eu</strong>.</li>
-                  <li>
-                    <span className="text-red-400 font-bold">IMPORTANTE:</span> Em "Quem pode acessar", selecione <strong>Qualquer pessoa</strong>.
-                  </li>
+                  <li>No Apps Script, clique no botão azul <strong>Implantar</strong> &gt; <strong>Gerenciar implantações</strong>.</li>
+                  <li>Clique no ícone de lápis (Editar).</li>
+                  <li>Em "Versão", selecione <strong>Nova versão</strong>.</li>
                   <li>Clique em <strong>Implantar</strong>.</li>
-                  <li>Copie a URL e cole na aba "Conexão".</li>
+                  <li>Não precisa mudar a URL no App se for o mesmo projeto.</li>
                 </ol>
               </div>
             </div>
