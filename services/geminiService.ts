@@ -1,8 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
-import { GEMINI_API_KEY } from '../constants';
 import { Note } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const analyzeNote = async (currentNote: Note, allNotes: Note[]): Promise<string> => {
   try {

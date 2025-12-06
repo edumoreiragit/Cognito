@@ -23,7 +23,11 @@ const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.SPLIT);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+  
+  // Auto-save states
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
+  const [typingTimeout, setTypingTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiResponse, setAiResponse] = useState<string>('');
   const [aiLoading, setAiLoading] = useState(false);
@@ -65,17 +69,31 @@ const App: React.FC = () => {
   };
 
   const updateNote = (updatedNote: Note) => {
+    // 1. Instant Local Update
     const updatedNotes = notes.map(n => n.id === updatedNote.id ? updatedNote : n);
     setNotes(updatedNotes);
     StorageService.saveNoteToLocal(updatedNote);
-  };
 
-  const handleSaveToDrive = async (note: Note) => {
-    setIsSaving(true);
-    await StorageService.saveNoteToDrive(note);
-    setIsSaving(false);
-    // Visual feedback
-    alert(`Nota "${note.title}" sincronizada com o Google Drive.`);
+    // 2. Debounced Cloud Sync
+    setSaveStatus('unsaved');
+    
+    if (typingTimeout) {
+      clearTimeout(typingTimeout);
+    }
+
+    // Wait 2 seconds after user stops typing to save to Drive
+    const timeout = setTimeout(async () => {
+      setSaveStatus('saving');
+      try {
+        await StorageService.saveNoteToDrive(updatedNote);
+        setSaveStatus('saved');
+      } catch (error) {
+        console.error("Auto-save failed", error);
+        setSaveStatus('unsaved'); // Retry logic could be added here
+      }
+    }, 2000);
+
+    setTypingTimeout(timeout);
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -95,6 +113,9 @@ const App: React.FC = () => {
           };
           StorageService.saveNoteToLocal(newNote);
           setNotes(prev => [...prev, newNote]);
+          
+          // Trigger initial save to drive for imported notes
+          StorageService.saveNoteToDrive(newNote); 
         };
         reader.readAsText(file);
       }
@@ -196,8 +217,8 @@ const App: React.FC = () => {
            
            <div className="flex items-center space-x-2">
              <div className="flex items-center text-xs text-gray-500 mr-2">
-               <span className="w-2 h-2 rounded-full bg-cognito-green mr-2 animate-pulse"></span>
-               Sincronização Ativa (Apps Script)
+               <span className={`w-2 h-2 rounded-full mr-2 transition-colors ${saveStatus === 'saved' ? 'bg-cognito-green' : saveStatus === 'saving' ? 'bg-cognito-orange animate-pulse' : 'bg-gray-500'}`}></span>
+               {saveStatus === 'saved' ? 'Sincronizado' : saveStatus === 'saving' ? 'Sincronizando...' : 'Alterado'}
              </div>
            </div>
         </header>
@@ -223,9 +244,8 @@ const App: React.FC = () => {
                         <Editor 
                             note={activeNote} 
                             onUpdate={updateNote}
-                            onSaveToDrive={handleSaveToDrive}
                             onAnalyze={handleAnalyze}
-                            isSaving={isSaving}
+                            saveStatus={saveStatus}
                         />
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full text-gray-500">

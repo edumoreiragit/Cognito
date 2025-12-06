@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Note } from '../types';
-import { Save, BrainCircuit, Loader2 } from 'lucide-react';
+import { Cloud, Check, BrainCircuit, Loader2, CloudUpload } from 'lucide-react';
 import { COLORS } from '../constants';
 
 interface EditorProps {
   note: Note;
   onUpdate: (updatedNote: Note) => void;
-  onSaveToDrive: (note: Note) => void;
   onAnalyze: (note: Note) => void;
-  isSaving: boolean;
+  saveStatus: 'saved' | 'saving' | 'unsaved';
 }
 
-const Editor: React.FC<EditorProps> = ({ note, onUpdate, onSaveToDrive, onAnalyze, isSaving }) => {
+const Editor: React.FC<EditorProps> = ({ note, onUpdate, onAnalyze, saveStatus }) => {
   const [activeTab, setActiveTab] = useState<'write' | 'preview'>('write');
 
   // Simple markdown renderer for preview
@@ -43,6 +42,34 @@ const Editor: React.FC<EditorProps> = ({ note, onUpdate, onSaveToDrive, onAnalyz
     });
   };
 
+  // Status icon logic
+  const renderSaveStatus = () => {
+    switch (saveStatus) {
+      case 'saving':
+        return (
+          <div className="flex items-center text-cognito-orange space-x-2 px-3 py-1 bg-white/5 rounded-full" title="Salvando no Drive...">
+            <Loader2 size={16} className="animate-spin" />
+            <span className="text-xs">Salvando...</span>
+          </div>
+        );
+      case 'saved':
+        return (
+          <div className="flex items-center text-cognito-green space-x-2 px-3 py-1 bg-white/5 rounded-full" title="Sincronizado com Drive">
+            <Cloud size={16} />
+            <span className="text-xs">Salvo</span>
+          </div>
+        );
+      case 'unsaved':
+      default:
+        return (
+          <div className="flex items-center text-gray-400 space-x-2 px-3 py-1 bg-white/5 rounded-full" title="Alterações pendentes">
+            <CloudUpload size={16} />
+            <span className="text-xs">Pendente...</span>
+          </div>
+        );
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-cognito-panel text-white rounded-lg border border-cognito-border overflow-hidden">
       {/* Toolbar */}
@@ -55,6 +82,10 @@ const Editor: React.FC<EditorProps> = ({ note, onUpdate, onSaveToDrive, onAnalyz
           placeholder="Título da Nota..."
         />
         <div className="flex items-center space-x-2">
+          {renderSaveStatus()}
+          
+          <div className="w-px h-6 bg-gray-700 mx-2"></div>
+          
           <button 
             onClick={() => setActiveTab('write')}
             className={`px-3 py-1 rounded text-sm transition-colors ${activeTab === 'write' ? 'bg-cognito-blue text-white' : 'text-gray-400 hover:text-white'}`}
@@ -67,21 +98,16 @@ const Editor: React.FC<EditorProps> = ({ note, onUpdate, onSaveToDrive, onAnalyz
           >
             Visualizar
           </button>
+          
           <div className="w-px h-6 bg-gray-700 mx-2"></div>
+          
           <button 
             onClick={() => onAnalyze(note)}
-            className="p-2 text-cognito-green hover:bg-white/10 rounded-full transition-all"
+            className="p-2 text-cognito-green hover:bg-white/10 rounded-full transition-all flex items-center space-x-2"
             title="Pedir análise à IA"
           >
             <BrainCircuit size={18} />
-          </button>
-          <button 
-            onClick={() => onSaveToDrive(note)}
-            disabled={isSaving}
-            className={`p-2 rounded-full transition-all flex items-center ${isSaving ? 'text-gray-500' : 'text-cognito-orange hover:bg-white/10'}`}
-            title="Salvar no Drive"
-          >
-            {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+            <span className="hidden xl:inline text-xs">Analisar</span>
           </button>
         </div>
       </div>
