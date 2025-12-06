@@ -1,0 +1,5 @@
+{
+  "name": "Cognito",
+  "description": "Uma base de conhecimento sofisticada de segundo cérebro com links bidirecionais, visualização de grafo 2D e sincronização com o Google Drive via Apps Script. Alimentado pelo Gemini para assistência intelectual.",
+  "requestFramePermissions": []
+}
