@@ -15,10 +15,8 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 }); 
   const simulationRef = useRef<d3.Simulation<any, undefined> | null>(null);
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
-  const transformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
-  const initializedRef = useRef(false);
-
-  // 1. Detectar redimensionamento do container (ex: ao dividir a tela)
+  
+  // 1. Detect Resize
   useEffect(() => {
     if (!containerRef.current) return;
     
@@ -37,7 +35,7 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
     return () => resizeObserver.disconnect();
   }, []);
 
-  // 2. Preparar dados do grafo
+  // 2. Prepare Data
   const { nodesData, linksData, linksHash } = useMemo(() => {
     const links: GraphLink[] = [];
     const titleToIdMap = new Map<string, string>(
@@ -65,29 +63,10 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
 
   const graphData = useMemo(() => ({ nodesData, linksData }), [linksHash]);
 
-  // 3. Atualizar o centro de gravidade quando a tela muda de tamanho
-  useEffect(() => {
-      if (simulationRef.current && dimensions.width > 0 && dimensions.height > 0) {
-          // Move o centro da força para o novo meio da tela
-          simulationRef.current.force("center", d3.forceCenter(dimensions.width / 2, dimensions.height / 2));
-          simulationRef.current.alpha(0.3).restart();
-
-          // Force reset/center view on first load of dimensions
-          if (!initializedRef.current && svgRef.current && zoomRef.current) {
-               d3.select(svgRef.current).call(
-                  zoomRef.current.transform, 
-                  d3.zoomIdentity.translate(dimensions.width / 2, dimensions.height / 2).scale(1).translate(-dimensions.width/2, -dimensions.height/2) // Just center loosely
-               );
-               initializedRef.current = true;
-          }
-      }
-  }, [dimensions]);
-
-  // 4. Inicializar/Atualizar Simulação D3
+  // 3. Initialize/Update Simulation
   useEffect(() => {
     if (!svgRef.current || graphData.nodesData.length === 0 || dimensions.width === 0) return;
 
-    // Preservar posições antigas para evitar "explosão" ao atualizar dados
     const oldNodesMap = new Map<string, any>(
       (simulationRef.current?.nodes() || []).map((n: any) => [n.id, n])
     );
@@ -98,7 +77,7 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
             const o = old as any;
             return { ...d, x: o.x, y: o.y, vx: o.vx, vy: o.vy };
         }
-        return { ...d };
+        return { ...d }; // New nodes start undefined, simulation places them
     });
     const d3Links = graphData.linksData.map(d => ({ ...d }));
 
@@ -108,42 +87,29 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
     const width = dimensions.width;
     const height = dimensions.height;
 
-    // Grupo para zoom
+    // Zoom Group
     const g = svg.append("g");
-
-    // Aplicar transform anterior se existir
-    if (transformRef.current) {
-        g.attr("transform", transformRef.current.toString());
-    }
 
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
       .on("zoom", (event) => {
         g.attr("transform", event.transform);
-        transformRef.current = event.transform;
       });
     
     zoomRef.current = zoom;
     svg.call(zoom);
-    
-    // Initial centering logic if not already transformed
-    if (transformRef.current === d3.zoomIdentity) {
-        // Center initial view: Center of SVG
-        // Note: Force simulation centers nodes at width/2, height/2.
-        // We want the viewport to look at width/2, height/2.
-        // By default d3.zoomIdentity looks at 0,0.
-        // We don't need to translate if the force center is naturally in the middle of the SVG.
-        // However, explicitly setting it ensures consistency.
-        // We rely on the forceCenter above to bring nodes to the middle.
-    } else {
-        svg.call(zoom.transform, transformRef.current);
-    }
 
+    // Force Simulation
     const simulation = d3.forceSimulation(d3Nodes as any)
       .force("link", d3.forceLink(d3Links).id((d: any) => d.id).distance(100))
       .force("charge", d3.forceManyBody().strength(-300))
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("collide", d3.forceCollide().radius(30));
+
+    // Warm up the simulation slightly to prevent 0,0 coordinates on first render
+    if (!simulationRef.current) {
+        simulation.tick(20); 
+    }
 
     simulationRef.current = simulation;
 
@@ -161,7 +127,7 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
       .selectAll("circle")
       .data(d3Nodes)
       .join("circle")
-      .attr("r", (d: any) => d.id === activeNoteId ? 12 : 8)
+      .attr("r", (d: any) => d.id === activeNoteId ? 14 : 8)
       .attr("fill", (d: any) => d.id === activeNoteId ? COLORS.orange : COLORS.purple)
       .attr("cursor", "pointer")
       .on("click", (event, d: any) => {
@@ -219,37 +185,56 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
       event.subject.fy = null;
     }
 
+    // Force Center Active Node immediately after simulation setup
+    if (activeNoteId) {
+        // Need a small timeout to let D3 calculate initial positions if it's a fresh simulation
+        setTimeout(() => {
+             const targetNode = d3Nodes.find((n: any) => n.id === activeNoteId) as any;
+             if (targetNode && targetNode.x !== undefined && svgRef.current && zoomRef.current) {
+                 const scale = 1.5;
+                 const x = -targetNode.x * scale + dimensions.width / 2;
+                 const y = -targetNode.y * scale + dimensions.height / 2;
+                 const transform = d3.zoomIdentity.translate(x, y).scale(scale);
+                 
+                 d3.select(svgRef.current).call(zoomRef.current.transform, transform);
+             }
+        }, 50);
+    }
+
     return () => {
       simulation.stop();
     };
-  }, [graphData, dimensions.width, dimensions.height, onNodeClick]);
+  }, [graphData, dimensions, onNodeClick]); // Removed activeNoteId from here to prevent full re-render loop
 
-  // Efeito Visual de Seleção (sem re-renderizar tudo)
+  // 4. Handle Active Node Centering / Highlight (Lightweight)
   useEffect(() => {
-    if (!svgRef.current) return;
+    if (!svgRef.current || !simulationRef.current || !zoomRef.current || !activeNoteId) return;
+    
     const svg = d3.select(svgRef.current);
     
+    // Update visual styles
     svg.selectAll("circle")
         .transition().duration(300)
         .attr("r", (d: any) => d.id === activeNoteId ? 14 : 8)
         .attr("fill", (d: any) => d.id === activeNoteId ? COLORS.orange : COLORS.purple);
 
-    // Pan da câmera para o nó selecionado
-    if (activeNoteId && simulationRef.current && zoomRef.current) {
-        const node = simulationRef.current.nodes().find((n: any) => n.id === activeNoteId);
-        if (node && (node.x !== undefined)) {
-            svg.transition()
-            .duration(750)
-            .call(
-                zoomRef.current.transform,
-                d3.zoomIdentity
-                .translate(dimensions.width / 2, dimensions.height / 2)
-                .scale(1.5)
-                .translate(-node.x, -node.y)
-            );
-        }
+    // Pan Camera to Node
+    const nodes = simulationRef.current.nodes() as any[];
+    const targetNode = nodes.find(n => n.id === activeNoteId);
+    
+    if (targetNode && targetNode.x !== undefined) {
+        const scale = 1.5;
+        // Center math: (ScreenCenter) - (NodePos * Scale)
+        const x = dimensions.width / 2 - (targetNode.x * scale);
+        const y = dimensions.height / 2 - (targetNode.y * scale);
+        
+        const transform = d3.zoomIdentity.translate(x, y).scale(scale);
+
+        svg.transition()
+           .duration(750)
+           .call(zoomRef.current.transform, transform);
     }
-  }, [activeNoteId, dimensions]);
+  }, [activeNoteId, dimensions]); // This handles the pan when note changes OR window resizes
 
   return (
     <div ref={containerRef} className="w-full h-full bg-cognito-dark relative overflow-hidden rounded-none md:rounded-lg shadow-inner border-b md:border border-cognito-border">

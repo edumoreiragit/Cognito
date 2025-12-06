@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
-import { Cloud, Check, BrainCircuit, Loader2, CloudUpload, FileText, ArrowLeftCircle } from 'lucide-react';
+import { Cloud, Check, BrainCircuit, Loader2, CloudUpload, FileText, ArrowLeftCircle, ArrowLeft } from 'lucide-react';
 import { COLORS } from '../constants';
 
 interface EditorProps {
@@ -10,10 +10,12 @@ interface EditorProps {
   onAnalyze: (note: Note) => void;
   onNavigate: (title: string) => void;
   onDelete: (note: Note) => void;
+  onBack: () => void;
+  canGoBack: boolean;
   saveStatus: 'saved' | 'saving' | 'unsaved';
 }
 
-const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNavigate, onDelete, saveStatus }) => {
+const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNavigate, onDelete, onBack, canGoBack, saveStatus }) => {
   // Autocomplete State
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestionQuery, setSuggestionQuery] = useState('');
@@ -56,20 +58,13 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
       .replace(/\*(.*?)\*/g, '<span class="italic text-gray-400">*$1*</span>');
 
     // 3. Dynamic WikiLinks Logic
-    // We use a replacer function to check cursor position against match indices
     html = html.replace(/\[\[(.*?)\]\]/g, (match, p1, offset) => {
         const start = offset;
         const end = offset + match.length;
         
-        // "Strictly inside" logic: 
-        // If cursor is at the very start or very end, brackets are hidden.
-        // If cursor is inside the brackets or text, brackets appear.
         const isCursorInside = cursorOffset > start && cursorOffset < end;
         
-        // If inside, show pink brackets. If outside, transparent (hidden but takes space).
         const bracketClass = isCursorInside ? "text-cognito-pink font-semibold" : "text-transparent select-none";
-        
-        // The link text itself
         const textClass = "text-cognito-blue underline decoration-cognito-blue/30 cursor-pointer";
 
         return `<span class="${bracketClass}">[[</span><span class="${textClass}">${p1}</span><span class="${bracketClass}">]]</span>`;
@@ -146,7 +141,6 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
       const clickIndex = target.selectionStart;
       const content = note.content;
 
-      // Check if click index is within a [[link]]
       const regex = /\[\[(.*?)\]\]/g;
       let match;
       while ((match = regex.exec(content)) !== null) {
@@ -155,13 +149,10 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
           
           if (clickIndex >= start && clickIndex <= end) {
               const linkTitle = match[1];
-              // Check if note exists
               const targetNote = notes.find(n => n.title.toLowerCase() === linkTitle.toLowerCase());
               
-              // Navigate if found AND user is not holding Alt (Alt allows placing cursor to edit without jumping)
               if (targetNote && !e.altKey) {
                   onNavigate(targetNote.title);
-                  // Optional: Blur to stop editing? No, keep flow smooth.
               }
               break;
           }
@@ -176,14 +167,12 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
     onUpdate({ ...note, content: newContent, lastModified: Date.now() });
     setShowSuggestions(false);
     
-    // Set cursor AFTER the closing brackets
     setTimeout(() => {
         if (textareaRef.current) {
             textareaRef.current.focus();
-            // Calculate new position: trigger + [[ + title + ]]
             const newCursorPos = triggerIndex + 2 + selectedNote.title.length + 2;
             textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
-            setCursorOffset(newCursorPos); // Updates highlighting immediately
+            setCursorOffset(newCursorPos); 
         }
     }, 0);
   };
@@ -192,7 +181,6 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
     onUpdate({ ...note, title: e.target.value, lastModified: Date.now() });
   };
 
-  // Status icon logic
   const renderSaveStatus = () => {
     switch (saveStatus) {
       case 'saving':
@@ -224,13 +212,24 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
     <div className="flex flex-col h-full bg-cognito-panel text-white rounded-none overflow-hidden relative">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-3 bg-[#1a1a1a] border-b border-cognito-border shrink-0 z-20">
-        <input 
-          type="text" 
-          value={note.title} 
-          onChange={handleTitleChange}
-          className="bg-transparent text-xl font-bold text-cognito-orange focus:outline-none w-full mr-4 placeholder-gray-600"
-          placeholder="Título da Nota..."
-        />
+        <div className="flex items-center flex-1 mr-4">
+            <button 
+                onClick={onBack} 
+                disabled={!canGoBack}
+                className={`mr-3 p-1.5 rounded-full transition-colors ${canGoBack ? 'text-cognito-blue hover:bg-white/10' : 'text-gray-700 cursor-not-allowed'}`}
+                title="Voltar"
+            >
+                <ArrowLeft size={20} />
+            </button>
+            <input 
+            type="text" 
+            value={note.title} 
+            onChange={handleTitleChange}
+            className="bg-transparent text-xl font-bold text-cognito-orange focus:outline-none w-full placeholder-gray-600"
+            placeholder="Título da Nota..."
+            />
+        </div>
+
         <div className="flex items-center space-x-2 shrink-0">
           {renderSaveStatus()}
           
@@ -256,7 +255,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
             className="absolute inset-0 p-6 whitespace-pre-wrap break-words text-gray-300 pointer-events-none overflow-hidden z-0"
             style={{ 
                 fontFamily: 'monospace',
-                lineHeight: '1.625' // Match textarea exactly
+                lineHeight: '1.625' 
              }}
             dangerouslySetInnerHTML={{ __html: highlightMarkdown(note.content) }}
         ></div>
@@ -274,7 +273,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
             className="absolute inset-0 w-full h-full bg-transparent p-6 resize-none focus:outline-none z-10 text-transparent caret-white selection:bg-cognito-blue/30 selection:text-transparent"
             style={{ 
                 fontFamily: 'monospace',
-                lineHeight: '1.625' // Exact match
+                lineHeight: '1.625' 
             }}
             placeholder="Comece a escrever... Use [[links]] para conectar ideias."
         />
@@ -284,7 +283,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
             <div 
                 className="absolute bg-[#1a1a1a] border border-cognito-border rounded-lg shadow-2xl z-50 w-64 overflow-hidden"
                 style={{ 
-                    top: '20%', // Fallback positioning
+                    top: '20%',
                     left: '10%',
                     maxHeight: '200px'
                 }}
