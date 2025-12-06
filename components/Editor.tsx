@@ -21,7 +21,8 @@ const Editor: React.FC<EditorProps> = ({ note, onUpdate, onAnalyze, saveStatus }
       .replace(/^### (.*$)/gim, '<h3 class="text-xl font-medium mb-2 text-cognito-green">$1</h3>')
       .replace(/\*\*(.*)\*\*/gim, '<strong class="text-cognito-yellow">$1</strong>')
       .replace(/\*(.*)\*/gim, '<em class="text-gray-300">$1</em>')
-      .replace(/\[\[(.*?)\]\]/g, '<span class="text-cognito-pink underline cursor-pointer hover:text-white transition-colors">[[ $1 ]]</span>')
+      // Changed: Removed the literal [[ and ]] from the replacement string
+      .replace(/\[\[(.*?)\]\]/g, '<span class="text-cognito-pink underline cursor-pointer hover:text-white transition-colors" title="Link interno">$1</span>')
       .replace(/\n/gim, '<br />');
     return { __html: html };
   };
