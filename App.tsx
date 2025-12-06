@@ -30,6 +30,9 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
+  // Navigation History
+  const [history, setHistory] = useState<string[]>([]);
+  
   // Renaming State
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -68,42 +71,24 @@ const App: React.FC = () => {
         
         if (driveNotes.length > 0) {
             setNotes(prevNotes => {
-                // 1. Create a map of Drive Notes for easy lookup
                 const driveNoteMap = new Map(driveNotes.map(n => [n.title, n]));
                 
-                // 2. Build the new state based on Drive as the master list.
-                // Any note currently in 'prevNotes' that is NOT in 'driveNotes' will effectively be removed
-                // because we are mapping primarily over 'driveNotes' to rebuild the list.
-                
                 const mergedNotes: Note[] = driveNotes.map(dNote => {
-                    // Check if we have a local version of this note
                     const localNote = prevNotes.find(p => p.title === dNote.title);
                     
-                    // Conflict Resolution:
-                    // If local exists and has a newer timestamp than Drive (user typed recently but hasn't synced), keep local content.
-                    // Otherwise, accept Drive content.
                     const remoteLastModified = (dNote as any).lastModified || 0;
                     const localLastModified = localNote ? (localNote.lastModified || 0) : 0;
                     
                     if (localNote && localLastModified > remoteLastModified) {
                         return { ...localNote, id: localNote.id || dNote.id }; // Keep local
                     } else {
-                        return { ...dNote, id: localNote ? localNote.id : dNote.id }; // Accept Drive, preserve ID if possible
+                        return { ...dNote, id: localNote ? localNote.id : dNote.id }; // Accept Drive
                     }
                 });
 
-                // 3. Save this clean state to local storage immediately
-                // This ensures that next refresh, deleted files are gone from local storage too.
                 localStorage.setItem('cognito_notes_v1', JSON.stringify(mergedNotes));
-                
                 return mergedNotes;
             });
-        } else {
-            // Edge case: If Drive returns EMPTY list (and not error), it implies all files were deleted?
-            // Safer to assume if we got a 200 OK but empty list, user deleted everything.
-            // But let's be careful not to wipe on connection error. 
-            // The fetchNotesFromDrive returns [] on error, so we need to be careful.
-            // For now, we only update if length > 0 to prevent accidental wipe on network fail.
         }
       } catch (error) {
         console.error("Sync failed", error);
@@ -119,22 +104,44 @@ const App: React.FC = () => {
     // Initial Sync
     syncDrive();
     
-    // Optional: Setup a polling interval to check for deletions in Drive every 30 seconds
     const interval = setInterval(() => {
-        if (!document.hidden) { // Only sync if tab is active
+        if (!document.hidden) { 
             syncDrive();
         }
     }, 30000);
 
     if (loadedNotes.length > 0) {
       if (!activeNoteId) setActiveNoteId(loadedNotes[0].id);
-    } else {
-        // Only create welcome note if local storage is empty AND drive sync hasn't populated yet
-        // We defer this slightly or let the UI handle empty state
-    }
+    } 
     
     return () => clearInterval(interval);
   }, [syncDrive]); 
+
+  // Navigation Helper
+  const navigateToNote = (id: string) => {
+      if (activeNoteId && activeNoteId !== id) {
+          setHistory(prev => [...prev, activeNoteId]);
+      }
+      setActiveNoteId(id);
+      if (window.innerWidth < 768) setIsSidebarOpen(false);
+  };
+
+  const handleBack = () => {
+      if (history.length === 0) return;
+      
+      const newHistory = [...history];
+      const prevId = newHistory.pop();
+      
+      if (prevId) {
+          if (notes.find(n => n.id === prevId)) {
+            setActiveNoteId(prevId);
+            setHistory(newHistory);
+          } else {
+              setHistory(newHistory);
+              handleBack(); // Recurse if note deleted
+          }
+      }
+  };
 
   const createNote = async () => {
     const newNote: Note = {
@@ -147,16 +154,14 @@ const App: React.FC = () => {
     const updatedNotes = [...notes, newNote];
     setNotes(updatedNotes);
     StorageService.saveNoteToLocal(newNote);
-    setActiveNoteId(newNote.id);
+    navigateToNote(newNote.id);
     
     if (viewMode === ViewMode.GRAPH) setViewMode(ViewMode.SPLIT);
-    if (window.innerWidth < 768) setIsSidebarOpen(false);
 
     setSaveStatus('saving');
     try {
         await StorageService.saveNoteToDrive(newNote);
         setSaveStatus('saved');
-        // Re-sync after create to confirm
         syncDrive();
     } catch (e) {
         console.error("Failed to create note", e);
@@ -187,11 +192,11 @@ const App: React.FC = () => {
   };
 
   const handleDeleteNote = async (noteToDelete: Note) => {
-    // 1. Update UI immediately
     const updatedNotes = notes.filter(n => n.id !== noteToDelete.id);
     setNotes(updatedNotes);
     StorageService.deleteNoteFromLocal(noteToDelete.id);
-    
+    setHistory(prev => prev.filter(id => id !== noteToDelete.id));
+
     if (activeNoteId === noteToDelete.id) {
       setActiveNoteId(updatedNotes.length > 0 ? updatedNotes[0].id : null);
     }
@@ -200,7 +205,6 @@ const App: React.FC = () => {
     try {
       await StorageService.deleteNoteFromDrive(noteToDelete);
       setSaveStatus('saved');
-      // Re-sync to ensure state matches Drive
       setTimeout(syncDrive, 1000);
     } catch (error) {
       setSaveStatus('unsaved');
@@ -242,9 +246,8 @@ const App: React.FC = () => {
   const handleNavigate = (title: string) => {
       const targetNote = notes.find(n => n.title.toLowerCase() === title.toLowerCase());
       if (targetNote) {
-          setActiveNoteId(targetNote.id);
+          navigateToNote(targetNote.id);
           if (viewMode === ViewMode.GRAPH) setViewMode(ViewMode.SPLIT);
-          if (window.innerWidth < 768) setIsSidebarOpen(false);
       } else {
           alert(`Nota "${title}" ainda não existe.`);
       }
@@ -282,7 +285,6 @@ const App: React.FC = () => {
     setAiLoading(false);
   };
 
-  // Improved Toggle Logic
   const toggleEditor = () => {
     if (viewMode === ViewMode.GRAPH) {
       setViewMode(ViewMode.SPLIT);
@@ -340,14 +342,22 @@ const App: React.FC = () => {
         
         <div className="p-4 space-y-4">
             <div className="relative">
-                <Search size={16} className="absolute left-3 top-2.5 text-gray-500" />
+                <Search size={16} className="absolute left-3 top-2.5 text-gray-500 z-0" />
                 <input 
                     type="text" 
                     placeholder="Pesquisar notas..." 
-                    className="w-full bg-[#1a1a1a] border border-cognito-border rounded-lg py-2 pl-9 pr-3 text-sm focus:border-cognito-blue focus:outline-none transition-colors"
+                    className="w-full bg-[#1a1a1a] border border-cognito-border rounded-lg py-2 pl-9 pr-8 text-sm focus:border-cognito-blue focus:outline-none transition-colors relative z-0"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                 />
+                {searchQuery && (
+                  <button 
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2 top-2 text-gray-400 hover:text-white z-10 p-0.5 hover:bg-white/10 rounded-full transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
             </div>
             
             <label className="flex items-center justify-center w-full px-4 py-2 border border-dashed border-gray-600 rounded-lg cursor-pointer hover:border-cognito-purple hover:text-cognito-purple transition-colors text-sm text-gray-400">
@@ -361,10 +371,7 @@ const App: React.FC = () => {
           {filteredNotes.map(note => (
             <div 
               key={note.id}
-              onClick={() => {
-                  setActiveNoteId(note.id);
-                  if (window.innerWidth < 768) setIsSidebarOpen(false);
-              }}
+              onClick={() => navigateToNote(note.id)}
               className={`group flex items-center justify-between px-3 py-2 rounded-md cursor-pointer text-sm transition-all ${activeNoteId === note.id ? 'bg-cognito-blue/20 text-cognito-blue' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
             >
               <div className="flex items-center overflow-hidden flex-1">
@@ -446,14 +453,12 @@ const App: React.FC = () => {
              <div className="flex bg-[#1a1a1a] rounded-lg p-1 space-x-1">
                 <button 
                     onClick={toggleEditor}
-                    title="Alternar Editor"
                     className={`px-3 py-1 rounded text-xs font-medium transition-colors ${isEditorVisible ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
                 >
                     Editor
                 </button>
                 <button 
                     onClick={toggleGraph}
-                    title="Alternar Grafo"
                     className={`px-3 py-1 rounded text-xs font-medium transition-colors ${isGraphVisible ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
                 >
                     Grafo
@@ -475,7 +480,7 @@ const App: React.FC = () => {
                     <Graph 
                         notes={filteredNotes} 
                         activeNoteId={activeNoteId} 
-                        onNodeClick={setActiveNoteId} 
+                        onNodeClick={navigateToNote} 
                     />
                 </div>
             )}
@@ -488,8 +493,10 @@ const App: React.FC = () => {
                             notes={notes}
                             onUpdate={updateNote}
                             onAnalyze={handleAnalyze}
-                            onNavigate={handleNavigate}
+                            onNavigate={navigateToNote}
                             onDelete={handleDeleteNote}
+                            onBack={handleBack}
+                            canGoBack={history.length > 0}
                             saveStatus={saveStatus}
                         />
                     ) : (

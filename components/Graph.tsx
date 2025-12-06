@@ -63,6 +63,26 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
 
   const graphData = useMemo(() => ({ nodesData, linksData }), [linksHash]);
 
+  // Helper to center view on a specific node ID
+  const centerOnNode = (id: string) => {
+      if (!svgRef.current || !zoomRef.current || !simulationRef.current) return;
+      
+      const nodes = simulationRef.current.nodes() as any[];
+      const node = nodes.find(n => n.id === id);
+      
+      if (node && node.x !== undefined && dimensions.width > 0) {
+          const scale = 1.5;
+          const x = dimensions.width / 2 - (node.x * scale);
+          const y = dimensions.height / 2 - (node.y * scale);
+          const transform = d3.zoomIdentity.translate(x, y).scale(scale);
+          
+          d3.select(svgRef.current)
+            .transition()
+            .duration(750)
+            .call(zoomRef.current.transform, transform);
+      }
+  };
+
   // 3. Initialize/Update Simulation
   useEffect(() => {
     if (!svgRef.current || graphData.nodesData.length === 0 || dimensions.width === 0) return;
@@ -77,7 +97,7 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
             const o = old as any;
             return { ...d, x: o.x, y: o.y, vx: o.vx, vy: o.vy };
         }
-        return { ...d }; // New nodes start undefined, simulation places them
+        return { ...d }; // New nodes start undefined
     });
     const d3Links = graphData.linksData.map(d => ({ ...d }));
 
@@ -106,11 +126,8 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
       .force("center", d3.forceCenter(width / 2, height / 2))
       .force("collide", d3.forceCollide().radius(30));
 
-    // Warm up the simulation slightly to prevent 0,0 coordinates on first render
-    if (!simulationRef.current) {
-        simulation.tick(20); 
-    }
-
+    // Warm up simulation
+    simulation.tick(50);
     simulationRef.current = simulation;
 
     const link = g.append("g")
@@ -185,56 +202,30 @@ const Graph: React.FC<GraphProps> = ({ notes, activeNoteId, onNodeClick }) => {
       event.subject.fy = null;
     }
 
-    // Force Center Active Node immediately after simulation setup
+    // Attempt to center on active note after setup
     if (activeNoteId) {
-        // Need a small timeout to let D3 calculate initial positions if it's a fresh simulation
-        setTimeout(() => {
-             const targetNode = d3Nodes.find((n: any) => n.id === activeNoteId) as any;
-             if (targetNode && targetNode.x !== undefined && svgRef.current && zoomRef.current) {
-                 const scale = 1.5;
-                 const x = -targetNode.x * scale + dimensions.width / 2;
-                 const y = -targetNode.y * scale + dimensions.height / 2;
-                 const transform = d3.zoomIdentity.translate(x, y).scale(scale);
-                 
-                 d3.select(svgRef.current).call(zoomRef.current.transform, transform);
-             }
-        }, 50);
+        // Wait for next tick to ensure nodes have settled positions slightly
+        setTimeout(() => centerOnNode(activeNoteId), 10);
     }
 
     return () => {
       simulation.stop();
     };
-  }, [graphData, dimensions, onNodeClick]); // Removed activeNoteId from here to prevent full re-render loop
+  }, [graphData, dimensions, onNodeClick]); // Re-run when graph data or dimensions change
 
-  // 4. Handle Active Node Centering / Highlight (Lightweight)
+  // 4. Handle Active Note Centering / Highlight when it changes
   useEffect(() => {
-    if (!svgRef.current || !simulationRef.current || !zoomRef.current || !activeNoteId) return;
-    
-    const svg = d3.select(svgRef.current);
+    if (!svgRef.current || !activeNoteId) return;
     
     // Update visual styles
-    svg.selectAll("circle")
+    d3.select(svgRef.current)
+        .selectAll("circle")
         .transition().duration(300)
         .attr("r", (d: any) => d.id === activeNoteId ? 14 : 8)
         .attr("fill", (d: any) => d.id === activeNoteId ? COLORS.orange : COLORS.purple);
 
-    // Pan Camera to Node
-    const nodes = simulationRef.current.nodes() as any[];
-    const targetNode = nodes.find(n => n.id === activeNoteId);
-    
-    if (targetNode && targetNode.x !== undefined) {
-        const scale = 1.5;
-        // Center math: (ScreenCenter) - (NodePos * Scale)
-        const x = dimensions.width / 2 - (targetNode.x * scale);
-        const y = dimensions.height / 2 - (targetNode.y * scale);
-        
-        const transform = d3.zoomIdentity.translate(x, y).scale(scale);
-
-        svg.transition()
-           .duration(750)
-           .call(zoomRef.current.transform, transform);
-    }
-  }, [activeNoteId, dimensions]); // This handles the pan when note changes OR window resizes
+    centerOnNode(activeNoteId);
+  }, [activeNoteId]);
 
   return (
     <div ref={containerRef} className="w-full h-full bg-cognito-dark relative overflow-hidden rounded-none md:rounded-lg shadow-inner border-b md:border border-cognito-border">

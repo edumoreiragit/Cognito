@@ -216,7 +216,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
             <button 
                 onClick={onBack} 
                 disabled={!canGoBack}
-                className={`mr-3 p-1.5 rounded-full transition-colors ${canGoBack ? 'text-cognito-blue hover:bg-white/10' : 'text-gray-700 cursor-not-allowed'}`}
+                className={`mr-3 p-1.5 rounded-full transition-colors ${canGoBack ? 'text-cognito-blue hover:bg-white/10' : 'text-gray-600 cursor-not-allowed opacity-50'}`}
                 title="Voltar"
             >
                 <ArrowLeft size={20} />
