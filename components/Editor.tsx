@@ -64,8 +64,9 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
         
         const isCursorInside = cursorOffset > start && cursorOffset < end;
         
+        // Brackets are hidden/pink when editing, links are Purple to match Graph Nodes
         const bracketClass = isCursorInside ? "text-cognito-pink font-semibold" : "text-transparent select-none";
-        const textClass = "text-cognito-blue underline decoration-cognito-blue/30 cursor-pointer";
+        const textClass = "text-cognito-purple underline decoration-cognito-purple/30 cursor-pointer font-medium";
 
         return `<span class="${bracketClass}">[[</span><span class="${textClass}">${p1}</span><span class="${bracketClass}">]]</span>`;
     });
@@ -270,7 +271,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
             onClick={handleClick}
             onScroll={updateCursorAndScroll}
             spellCheck={false}
-            className="absolute inset-0 w-full h-full bg-transparent p-6 resize-none focus:outline-none z-10 text-transparent caret-white selection:bg-cognito-blue/30 selection:text-transparent"
+            className="absolute inset-0 w-full h-full bg-transparent p-6 resize-none focus:outline-none z-10 text-transparent caret-white selection:bg-cognito-purple/30 selection:text-transparent"
             style={{ 
                 fontFamily: 'monospace',
                 lineHeight: '1.625' 
@@ -288,14 +289,14 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
                     maxHeight: '200px'
                 }}
             >
-                <div className="bg-cognito-blue/10 px-3 py-1 text-xs text-cognito-blue border-b border-white/5 font-semibold">
+                <div className="bg-cognito-purple/10 px-3 py-1 text-xs text-cognito-purple border-b border-white/5 font-semibold">
                     Link para...
                 </div>
                 {suggestions.map((suggestion, index) => (
                     <div
                         key={suggestion.id}
                         onClick={() => selectSuggestion(suggestion)}
-                        className={`px-3 py-2 cursor-pointer text-sm flex items-center ${index === suggestionIndex ? 'bg-cognito-blue text-white' : 'text-gray-300 hover:bg-white/5'}`}
+                        className={`px-3 py-2 cursor-pointer text-sm flex items-center ${index === suggestionIndex ? 'bg-cognito-purple text-white' : 'text-gray-300 hover:bg-white/5'}`}
                     >
                         <FileText size={12} className="mr-2 opacity-70" />
                         <span className="truncate">{suggestion.title}</span>
@@ -320,7 +321,7 @@ const Editor: React.FC<EditorProps> = ({ note, notes, onUpdate, onAnalyze, onNav
                           className="p-3 rounded bg-white/5 hover:bg-white/10 cursor-pointer transition-colors group border border-transparent hover:border-cognito-border"
                       >
                           <div className="flex items-center justify-between mb-1">
-                              <span className="text-sm font-medium text-cognito-blue group-hover:underline flex items-center">
+                              <span className="text-sm font-medium text-cognito-purple group-hover:underline flex items-center">
                                   <FileText size={12} className="mr-2 opacity-70" />
                                   {bn.title}
                               </span>
