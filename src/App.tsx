@@ -1,25 +1,25 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Note, ViewMode } from '../types';
-import * as StorageService from '../services/storageService';
-import * as GeminiService from '../services/geminiService';
-import Graph from '../components/Graph';
-import Editor from '../components/Editor';
-import SettingsModal from '../components/SettingsModal';
+import { Note, ViewMode } from './types';
+import * as StorageService from './services/storageService';
+import * as GeminiService from './services/geminiService';
+import Graph from './components/Graph';
+import Editor from './components/Editor';
+import SettingsModal from './components/SettingsModal';
 import { 
   Network, 
   FileText, 
   Plus, 
   Upload, 
-  Layout, 
+  PanelLeft, 
   Sparkles,
   Search,
   Settings,
   X,
   Loader2,
   RefreshCw,
-  Edit2,
+  Pencil,
   Check,
-  Trash2
+  Trash
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -71,10 +71,8 @@ const App: React.FC = () => {
         
         if (driveNotes.length > 0) {
             setNotes(prevNotes => {
-                // 1. Create a map of Drive Notes for easy lookup
                 const driveNoteMap = new Map(driveNotes.map(n => [n.title, n]));
                 
-                // 2. Build the new state based on Drive as the master list.
                 const mergedNotes: Note[] = driveNotes.map(dNote => {
                     const localNote = prevNotes.find(p => p.title === dNote.title);
                     
@@ -84,7 +82,7 @@ const App: React.FC = () => {
                     if (localNote && localLastModified > remoteLastModified) {
                         return { ...localNote, id: localNote.id || dNote.id }; // Keep local
                     } else {
-                        return { ...dNote, id: localNote ? localNote.id : dNote.id }; // Accept Drive, preserve ID if possible
+                        return { ...dNote, id: localNote ? localNote.id : dNote.id }; // Accept Drive
                     }
                 });
 
@@ -135,14 +133,12 @@ const App: React.FC = () => {
       const prevId = newHistory.pop();
       
       if (prevId) {
-          // Check if note still exists
           if (notes.find(n => n.id === prevId)) {
             setActiveNoteId(prevId);
             setHistory(newHistory);
           } else {
-              // Note might have been deleted, recurse
               setHistory(newHistory);
-              handleBack();
+              handleBack(); // Recurse if note deleted
           }
       }
   };
@@ -173,6 +169,35 @@ const App: React.FC = () => {
     }
   };
 
+  // Logic to silently create a note from the editor without switching view
+  const createNoteFromTitle = async (title: string) => {
+      // Check if exists case-insensitive
+      if (notes.some(n => n.title.toLowerCase() === title.toLowerCase())) return;
+
+      const newNote: Note = {
+          id: crypto.randomUUID(),
+          title: title,
+          content: '',
+          lastModified: Date.now()
+      };
+
+      const updatedNotes = [...notes, newNote];
+      setNotes(updatedNotes);
+      StorageService.saveNoteToLocal(newNote);
+      
+      // We do NOT navigate to it, we just create it so the link becomes valid
+
+      setSaveStatus('saving');
+      try {
+          await StorageService.saveNoteToDrive(newNote);
+          setSaveStatus('saved');
+          syncDrive();
+      } catch (e) {
+          console.error("Failed to create auto-note", e);
+          setSaveStatus('unsaved');
+      }
+  };
+
   const updateNote = (updatedNote: Note) => {
     const updatedNotes = notes.map(n => n.id === updatedNote.id ? updatedNote : n);
     setNotes(updatedNotes);
@@ -199,8 +224,6 @@ const App: React.FC = () => {
     const updatedNotes = notes.filter(n => n.id !== noteToDelete.id);
     setNotes(updatedNotes);
     StorageService.deleteNoteFromLocal(noteToDelete.id);
-    
-    // Remove deleted note from history
     setHistory(prev => prev.filter(id => id !== noteToDelete.id));
 
     if (activeNoteId === noteToDelete.id) {
@@ -291,7 +314,6 @@ const App: React.FC = () => {
     setAiLoading(false);
   };
 
-  // Improved Toggle Logic
   const toggleEditor = () => {
     if (viewMode === ViewMode.GRAPH) {
       setViewMode(ViewMode.SPLIT);
@@ -349,18 +371,18 @@ const App: React.FC = () => {
         
         <div className="p-4 space-y-4">
             <div className="relative">
-                <Search size={16} className="absolute left-3 top-2.5 text-gray-500" />
+                <Search size={16} className="absolute left-3 top-2.5 text-gray-500 z-0" />
                 <input 
                     type="text" 
                     placeholder="Pesquisar notas..." 
-                    className="w-full bg-[#1a1a1a] border border-cognito-border rounded-lg py-2 pl-9 pr-8 text-sm focus:border-cognito-blue focus:outline-none transition-colors"
+                    className="w-full bg-[#1a1a1a] border border-cognito-border rounded-lg py-2 pl-9 pr-8 text-sm focus:border-cognito-blue focus:outline-none transition-colors relative z-0"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                 />
                 {searchQuery && (
                   <button 
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-2 top-2 text-gray-500 hover:text-white"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white z-10 p-1 hover:bg-white/10 rounded-full transition-colors flex items-center justify-center"
                   >
                     <X size={14} />
                   </button>
@@ -416,7 +438,7 @@ const App: React.FC = () => {
                       className="p-1.5 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-colors"
                       title="Renomear"
                     >
-                      <Edit2 size={14} />
+                      <Pencil size={14} />
                     </button>
                     <button 
                       onClick={(e) => {
@@ -428,7 +450,7 @@ const App: React.FC = () => {
                       className="p-1.5 hover:bg-red-900/30 rounded text-gray-500 hover:text-red-400 transition-colors"
                       title="Excluir"
                     >
-                      <Trash2 size={14} />
+                      <Trash size={14} />
                     </button>
                 </div>
               )}
@@ -455,7 +477,7 @@ const App: React.FC = () => {
         <header className="h-14 border-b border-cognito-border flex items-center justify-between px-4 bg-[#0a0a0a]">
            <div className="flex items-center space-x-3">
              <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-white/5 rounded">
-                <Layout size={18} />
+                <PanelLeft size={18} />
              </button>
              <div className="flex bg-[#1a1a1a] rounded-lg p-1 space-x-1">
                 <button 
@@ -505,6 +527,7 @@ const App: React.FC = () => {
                             onBack={handleBack}
                             canGoBack={history.length > 0}
                             saveStatus={saveStatus}
+                            onCreateNote={createNoteFromTitle}
                         />
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full text-gray-500">

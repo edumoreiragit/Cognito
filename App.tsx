@@ -10,16 +10,16 @@ import {
   FileText, 
   Plus, 
   Upload, 
-  Layout, 
+  PanelLeft, 
   Sparkles,
   Search,
   Settings,
   X,
   Loader2,
   RefreshCw,
-  Edit2,
+  Pencil,
   Check,
-  Trash2
+  Trash
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -169,6 +169,35 @@ const App: React.FC = () => {
     }
   };
 
+  // Logic to silently create a note from the editor without switching view
+  const createNoteFromTitle = async (title: string) => {
+      // Check if exists case-insensitive
+      if (notes.some(n => n.title.toLowerCase() === title.toLowerCase())) return;
+
+      const newNote: Note = {
+          id: crypto.randomUUID(),
+          title: title,
+          content: '',
+          lastModified: Date.now()
+      };
+
+      const updatedNotes = [...notes, newNote];
+      setNotes(updatedNotes);
+      StorageService.saveNoteToLocal(newNote);
+      
+      // We do NOT navigate to it, we just create it so the link becomes valid
+
+      setSaveStatus('saving');
+      try {
+          await StorageService.saveNoteToDrive(newNote);
+          setSaveStatus('saved');
+          syncDrive();
+      } catch (e) {
+          console.error("Failed to create auto-note", e);
+          setSaveStatus('unsaved');
+      }
+  };
+
   const updateNote = (updatedNote: Note) => {
     const updatedNotes = notes.map(n => n.id === updatedNote.id ? updatedNote : n);
     setNotes(updatedNotes);
@@ -243,7 +272,8 @@ const App: React.FC = () => {
     }
   };
 
-  const handleNavigate = (title: string) => {
+  // Wrapped in useCallback to ensure stability for child components
+  const handleNavigate = useCallback((title: string) => {
       const targetNote = notes.find(n => n.title.toLowerCase() === title.toLowerCase());
       if (targetNote) {
           navigateToNote(targetNote.id);
@@ -251,7 +281,7 @@ const App: React.FC = () => {
       } else {
           alert(`Nota "${title}" ainda não existe.`);
       }
-  };
+  }, [notes, viewMode]);
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -353,7 +383,7 @@ const App: React.FC = () => {
                 {searchQuery && (
                   <button 
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-2 top-2 text-gray-400 hover:text-white z-10 p-0.5 hover:bg-white/10 rounded-full transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white z-10 p-1 hover:bg-white/10 rounded-full transition-colors flex items-center justify-center"
                   >
                     <X size={14} />
                   </button>
@@ -409,7 +439,7 @@ const App: React.FC = () => {
                       className="p-1.5 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-colors"
                       title="Renomear"
                     >
-                      <Edit2 size={14} />
+                      <Pencil size={14} />
                     </button>
                     <button 
                       onClick={(e) => {
@@ -421,7 +451,7 @@ const App: React.FC = () => {
                       className="p-1.5 hover:bg-red-900/30 rounded text-gray-500 hover:text-red-400 transition-colors"
                       title="Excluir"
                     >
-                      <Trash2 size={14} />
+                      <Trash size={14} />
                     </button>
                 </div>
               )}
@@ -448,7 +478,7 @@ const App: React.FC = () => {
         <header className="h-14 border-b border-cognito-border flex items-center justify-between px-4 bg-[#0a0a0a]">
            <div className="flex items-center space-x-3">
              <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-white/5 rounded">
-                <Layout size={18} />
+                <PanelLeft size={18} />
              </button>
              <div className="flex bg-[#1a1a1a] rounded-lg p-1 space-x-1">
                 <button 
@@ -493,11 +523,12 @@ const App: React.FC = () => {
                             notes={notes}
                             onUpdate={updateNote}
                             onAnalyze={handleAnalyze}
-                            onNavigate={navigateToNote}
+                            onNavigate={handleNavigate}
                             onDelete={handleDeleteNote}
                             onBack={handleBack}
                             canGoBack={history.length > 0}
                             saveStatus={saveStatus}
+                            onCreateNote={createNoteFromTitle}
                         />
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full text-gray-500">
