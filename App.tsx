@@ -272,8 +272,7 @@ const App: React.FC = () => {
     }
   };
 
-  // Wrapped in useCallback to ensure stability for child components
-  const handleNavigate = useCallback((title: string) => {
+  const handleNavigate = (title: string) => {
       const targetNote = notes.find(n => n.title.toLowerCase() === title.toLowerCase());
       if (targetNote) {
           navigateToNote(targetNote.id);
@@ -281,7 +280,7 @@ const App: React.FC = () => {
       } else {
           alert(`Nota "${title}" ainda não existe.`);
       }
-  }, [notes, viewMode]);
+  };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -523,11 +522,10 @@ const App: React.FC = () => {
                             notes={notes}
                             onUpdate={updateNote}
                             onAnalyze={handleAnalyze}
-                            onNavigate={handleNavigate}
+                            onNavigate={navigateToNote}
                             onDelete={handleDeleteNote}
                             onBack={handleBack}
                             canGoBack={history.length > 0}
-                            saveStatus={saveStatus}
                             onCreateNote={createNoteFromTitle}
                         />
                     ) : (
